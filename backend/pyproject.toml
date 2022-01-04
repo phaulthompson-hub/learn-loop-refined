@@ -1,0 +1,21 @@
+[project]
+name = "learnloop-api"
+version = "1.1.0"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.black]
+line-length = 120
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4"]
+ignore = ["B008"]  # FastAPI's Depends()/File() defaults are the documented pattern.
+
+[tool.ruff.isort]
+known-first-party = ["app"]
