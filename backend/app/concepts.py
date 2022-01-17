@@ -125,3 +125,49 @@ def _candidates(sentences: list[str]) -> tuple[Counter, Counter, dict[str, int]]
     return unigrams, bigrams, first_seen
 
 
+def rank_phrases(text: str, limit: int = 6) -> list[str]:
+    """Return up to `limit` key phrases, ordered by first appearance in the text."""
+    sentences = split_sentences(text) or [text]
+    unigrams, bigrams, first_seen = _candidates(sentences)
+    repeated = {phrase: count for phrase, count in bigrams.items() if count >= 2}
+    scores: dict[str, float] = {phrase: count * 2.5 for phrase, count in repeated.items()}
+    for word, count in unigrams.items():
+        covered = sum(c for phrase, c in repeated.items() if word in phrase.split())
+        remaining = count - covered
+        if remaining > 0:
+            scores[word] = float(remaining)
+    ranked = sorted(scores, key=lambda phrase: (-scores[phrase], first_seen[phrase], phrase))
+    chosen: list[str] = []
+    for phrase in ranked:
+        words = set(phrase.split())
+        # A word already covered by a chosen phrase (or a phrase containing a chosen word) adds nothing new.
+        if any(words <= set(old.split()) or set(old.split()) <= words for old in chosen):
+            continue
+        chosen.append(phrase)
+        if len(chosen) == limit:
+            break
+    return sorted(chosen, key=lambda phrase: first_seen[phrase])
+
+
+def _summary_for(phrase: str, sentences: list[str], used: set[str]) -> str:
+    pattern = re.compile(rf"\b{re.escape(phrase)}s?\b", re.I)
+    matches = [(match.start(), index, s) for index, s in enumerate(sentences) if (match := pattern.search(s))]
+    if not matches:
+        return f"A key idea in this learning material related to {phrase}."
+    unused = [m for m in matches if m[2] not in used] or matches
+    # Prefer the sentence that introduces the phrase earliest, which is usually its definition.
+    _, _, sentence = min(unused)
+    return sentence[:MAX_SUMMARY]
+
+
+def extract_concepts(text: str, limit: int = 6) -> list[ExtractedConcept]:
+    sentences = split_sentences(text)
+    phrases = rank_phrases(text, limit)
+    used: set[str] = set()
+    summaries: dict[str, str] = {}
+    # Multi-word phrases are the most specific, so they pick their defining sentence first.
+    for phrase in sorted(phrases, key=lambda p: -len(p.split())):
+        summaries[phrase] = _summary_for(phrase, sentences, used)
+        used.add(summaries[phrase])
+    result = [ExtractedConcept(phrase.replace("-", " ").title(), summaries[phrase]) for phrase in phrases]
+    return result or [ExtractedConcept("Core Idea", text.strip()[:MAX_SUMMARY])]
