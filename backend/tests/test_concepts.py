@@ -122,3 +122,55 @@ def test_seeded_materials_yield_six_distinct_concepts(key):
         assert concept.name.lower() in concept.summary.lower().replace("-", " ")
 
 
+def test_summaries_are_distinct_when_possible():
+    summaries = [c.summary for c in extract_concepts(DEMO_TEXT)]
+    assert len(summaries) == len(set(summaries))
+
+
+def test_summary_prefers_the_defining_sentence():
+    concepts = {c.name: c.summary for c in extract_concepts(DEMO_TEXT)}
+    assert concepts["Gradient Descent"].startswith("Gradient descent is an optimization method")
+    assert concepts["Loss Function"].startswith("The loss function measures")
+
+
+def test_phrases_choose_their_defining_sentence_before_single_words():
+    concepts = {c.name: c.summary for c in extract_concepts(SQL_TEXT)}
+    assert concepts["Primary Key"].startswith("Every table should have a primary key")
+    assert concepts["Foreign Key"].startswith("A foreign key is a column")
+
+
+def test_demo_text_extraction_is_stable():
+    first = extract_concepts(DEMO_TEXT)
+    assert first == extract_concepts(DEMO_TEXT)
+    assert [c.name for c in first] == [
+        "Machine Learning",
+        "Performance",
+        "Examples",
+        "Model",
+        "Loss Function",
+        "Gradient Descent",
+    ]
+
+
+def test_seeded_sql_and_biology_concepts():
+    assert names(MATERIALS["sql"]) == [
+        "Table",
+        "Column",
+        "Primary Key",
+        "Foreign Key",
+        "Join",
+        "Database Normalization",
+    ]
+    assert "Cellular Respiration" in names(MATERIALS["cells"])
+
+
+def test_text_without_keywords_falls_back_to_core_idea():
+    concepts = extract_concepts("   the and for are was were has had   ")
+    assert len(concepts) == 1
+    assert concepts[0].name == "Core Idea"
+
+
+def test_summaries_are_truncated():
+    long_sentence = "Thermodynamics " + "thermodynamics explains heat and work " * 30 + "."
+    concepts = extract_concepts(long_sentence + " " + long_sentence)
+    assert all(len(c.summary) <= 300 for c in concepts)
