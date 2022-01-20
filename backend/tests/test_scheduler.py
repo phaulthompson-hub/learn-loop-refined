@@ -122,3 +122,113 @@ def test_intervals_are_capped_at_a_year():
     assert next_interval(state, EASY) == MAX_INTERVAL_DAYS
 
 
+def test_invalid_grade_is_rejected():
+    with pytest.raises(ValueError):
+        next_schedule(NEW, 4)
+    with pytest.raises(ValueError):
+        next_interval(NEW, -1)
+
+
+# ---------- Lapses ----------
+
+
+def test_forgetting_a_learned_card_is_a_lapse_and_resets_repetitions():
+    state = next_schedule(learned(15, repetitions=4, lapses=1), AGAIN)
+    assert state == CardSchedule(ease=2.3, interval_days=0, repetitions=0, lapses=2)
+
+
+def test_failing_a_new_card_is_not_a_lapse():
+    assert next_schedule(NEW, AGAIN).lapses == 0
+
+
+def test_relearning_after_a_lapse_restarts_the_ladder_with_lower_ease():
+    state = answer_all(GOOD, GOOD, GOOD, AGAIN, GOOD, GOOD)
+    assert state.interval_days == 6
+    assert state.lapses == 1
+    assert state.ease == 2.3
+
+
+# ---------- Due dates and labels ----------
+
+
+def test_due_after_uses_minutes_for_again_and_days_otherwise():
+    reviewed = datetime(2022, 3, 14, 9, 0)
+    assert due_after(reviewed, 0) == reviewed + timedelta(minutes=10)
+    assert due_after(reviewed, 6) == datetime(2022, 3, 20, 9, 0)
+
+
+@pytest.mark.parametrize(
+    ("days", "label"),
+    [(0, "10m"), (1, "1d"), (29, "29d"), (30, "1mo"), (45, "1.5mo"), (364, "12.1mo"), (365, "1y"), (547, "1.5y")],
+)
+def test_format_interval(days, label):
+    assert format_interval(days) == label
+
+
+def test_preview_intervals_labels_every_button():
+    previews = preview_intervals(learned(10))
+    assert [p["grade"] for p in previews] == list(GRADES)
+    assert [p["label"] for p in previews] == ["again", "hard", "good", "easy"]
+    assert [p["interval_days"] for p in previews] == [0, 12, 25, 33]
+    assert [p["display"] for p in previews] == ["10m", "12d", "25d", "1.1mo"]
+
+
+def test_preview_matches_what_answering_does():
+    state = answer_all(GOOD, HARD, EASY)
+    for preview in preview_intervals(state):
+        assert next_schedule(state, preview["grade"]).interval_days == preview["interval_days"]
+
+
+# ---------- Statistics helpers ----------
+
+
+@pytest.mark.parametrize(
+    ("state", "status"),
+    [
+        (None, "new"),
+        (next_schedule(NEW, AGAIN), "learning"),
+        (learned(6), "young"),
+        (learned(20), "young"),
+        (learned(21), "mature"),
+    ],
+)
+def test_card_status(state, status):
+    assert card_status(state) == status
+
+
+def test_retention_rate_counts_everything_but_again():
+    assert retention_rate([]) is None
+    assert retention_rate([AGAIN, GOOD, GOOD, EASY]) == 75.0
+    assert retention_rate([AGAIN, AGAIN, HARD]) == 33.3
+    assert retention_rate(iter([GOOD])) == 100.0
+
+
+def test_mastery_percent_caps_each_card_at_mature():
+    assert mastery_percent([21, 90, 0], 4) == 50.0
+    assert mastery_percent([7], 1) == 33.3
+    assert mastery_percent([], 0) == 0.0
+    # Unreviewed cards count as zero progress.
+    assert mastery_percent([21], 10) == 10.0
+
+
+def test_forecast_buckets_due_dates_per_day():
+    today = date(2022, 3, 14)
+    due = [
+        datetime(2022, 3, 8, 8),  # overdue -> today
+        datetime(2022, 3, 14, 23),
+        datetime(2022, 3, 15, 1),
+        datetime(2022, 3, 27, 12),  # last day of the window
+        datetime(2022, 3, 28, 12),  # outside the window
+    ]
+    days = forecast(due, today)
+    assert len(days) == 14
+    assert days[0] == (today, 2)
+    assert days[1] == (date(2022, 3, 15), 1)
+    assert days[13] == (date(2022, 3, 27), 1)
+    assert sum(count for _, count in days) == 4
+
+
+def test_forecast_supports_other_horizons():
+    days = forecast([], date(2022, 3, 14), days=7)
+    assert [count for _, count in days] == [0] * 7
+    assert days[-1][0] == date(2022, 3, 20)
