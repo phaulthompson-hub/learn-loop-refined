@@ -125,3 +125,47 @@ def extract_links(text: str) -> list[WikiLink]:
     return links
 
 
+def unique_links(links: Iterable[WikiLink]) -> list[WikiLink]:
+    """First occurrence of each distinct target (case-insensitive), in document order."""
+    seen: set[str] = set()
+    result = []
+    for link in links:
+        if link.key not in seen:
+            seen.add(link.key)
+            result.append(link)
+    return result
+
+
+def links_to(text: str, title: str) -> list[WikiLink]:
+    key = normalise_title(title)
+    return [link for link in extract_links(text) if link.key == key]
+
+
+def title_index(targets: Iterable[LinkTarget]) -> dict[str, int]:
+    """Map normalised titles to note ids. On duplicates the preferred note wins, then the most recent."""
+    best: dict[str, LinkTarget] = {}
+    for target in targets:
+        key = normalise_title(target.title)
+        current = best.get(key)
+        rank = (target.preferred, target.updated_at, target.note_id)
+        if current is None or rank > (current.preferred, current.updated_at, current.note_id):
+            best[key] = target
+    return {key: target.note_id for key, target in best.items()}
+
+
+def rename_links(text: str, old_title: str, new_title: str) -> tuple[str, int]:
+    """Point every link at `old_title` to `new_title`, keeping aliases and headings. Returns (text, count)."""
+    matches = links_to(text, old_title)
+    for link in reversed(matches):
+        replacement = new_title
+        if link.heading:
+            replacement += f"#{link.heading}"
+        if link.alias:
+            replacement += f"|{link.alias}"
+        text = f"{text[: link.start]}[[{replacement}]]{text[link.end :]}"
+    return text, len(matches)
+
+
+def resolve_links(text: str, index: Mapping[str, int]) -> list[tuple[WikiLink, int | None]]:
+    """Distinct outgoing links with the note id each one resolves to (None when no such note exists)."""
+    return [(link, index.get(link.key)) for link in unique_links(extract_links(text))]
