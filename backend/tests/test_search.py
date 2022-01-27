@@ -120,3 +120,101 @@ def test_rank_puts_exact_title_first():
 # ---------- Highlights ----------
 
 
+def test_highlights_prefer_word_starts():
+    text = "Adjoin tables with a join; joins are everywhere"
+    assert marked(text, highlight_ranges(text, parse_query("join"))) == ["join", "join"]
+
+
+def test_highlights_fall_back_to_substrings():
+    text = "Adjoining rooms"
+    assert marked(text, highlight_ranges(text, parse_query("join"))) == ["join"]
+
+
+def test_highlights_map_accented_text_back_to_original_offsets():
+    text = "Le Café, the CAFE"
+    assert marked(text, highlight_ranges(text, parse_query("cafe"))) == ["Café", "CAFE"]
+
+
+def test_overlapping_highlights_are_merged():
+    text = "loss function"
+    assert highlight_ranges(text, parse_query('loss "loss function"')) == [(0, 13)]
+
+
+def test_matches_separated_by_whitespace_become_one_highlight():
+    text = "Gradient  descent, then gradient"
+    assert marked(text, highlight_ranges(text, parse_query("gradient descent"))) == ["Gradient  descent", "gradient"]
+
+
+def test_merge_ranges_joins_touching_and_drops_empty():
+    assert merge_ranges([(5, 8), (0, 2), (2, 4), (7, 10), (3, 3)]) == [(0, 4), (5, 10)]
+
+
+# ---------- Snippets ----------
+
+
+def test_short_text_is_returned_whole_with_whitespace_collapsed():
+    result = snippet("  SQL \n\n joins   explained ", parse_query("joins"))
+    assert result.text == "SQL joins explained"
+    assert marked(result.text, result.highlights) == ["joins"]
+
+
+def test_snippet_windows_around_the_match_with_ellipses():
+    text = " ".join(["filler"] * 40) + " the gradient step " + " ".join(["padding"] * 40)
+    result = snippet(text, parse_query("gradient"), width=60)
+    assert result.text.startswith("…") and result.text.endswith("…")
+    assert len(result.text) <= 62
+    assert marked(result.text, result.highlights) == ["gradient"]
+
+
+def test_snippet_prefers_the_densest_cluster_of_matches():
+    text = "loss " + "x " * 80 + "loss function and loss curve " + "y " * 80
+    result = snippet(text, parse_query("loss"), width=50)
+    assert marked(result.text, result.highlights) == ["loss", "loss"]
+
+
+def test_snippet_without_matches_starts_at_the_beginning():
+    text = "First words of the note. " + "More text here. " * 20
+    result = snippet(text, parse_query("absent"), width=40)
+    assert result.text.startswith("First words")
+    assert result.text.endswith("…")
+    assert result.highlights == []
+
+
+def test_snippet_never_cuts_words_or_matches():
+    text = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda"
+    result = excerpt(text, [], 20)
+    assert result.text == "alpha beta gamma…"
+
+
+def test_excerpt_keeps_explicit_ranges_aligned():
+    text = "Intro line.\n\nSee [[Loss functions]] for\tdetails."
+    start = text.index("[[")
+    result = excerpt(text, [(start, start + len("[[Loss functions]]"))], 200)
+    assert result.text == "Intro line. See [[Loss functions]] for details."
+    assert marked(result.text, result.highlights) == ["[[Loss functions]]"]
+
+
+# ---------- Markdown to text ----------
+
+
+def test_strip_markdown_removes_syntax_but_keeps_words():
+    markdown = (
+        "# Heading\n\n"
+        "> quoted **bold** and _italic_ and ~~gone~~\n\n"
+        "- [x] done item\n"
+        "1. first [link](https://example.com) and `code`\n\n"
+        "[[Target|alias]] and [[Plain#Section]]\n\n"
+        "---\n"
+        "| a | b |\n| --- | --- |\n| 1 | 2 |\n\n"
+        "```sql\nSELECT 1;\n```"
+    )
+    text = strip_markdown(markdown)
+    for word in ("Heading", "quoted bold and italic and gone", "done item", "first link and code", "alias", "Plain"):
+        assert word in text
+    for syntax in ("#", "**", "[x]", "](", "[[", "`", "---", "|"):
+        assert syntax not in text
+    assert "SELECT 1;" in text
+
+
+def test_strip_markdown_keeps_snake_case_words():
+    assert strip_markdown("use snake_case_names and 2*3*4") == "use snake_case_names and 2*3*4"
