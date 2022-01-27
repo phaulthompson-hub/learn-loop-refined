@@ -126,3 +126,57 @@ def deactivation_blockers(seats: Iterable[WorkspaceSeat]) -> list[str]:
     )
 
 
+def invitation_state(status: str, expires_at: datetime, now: datetime) -> str:
+    """The status shown to people: a pending invitation past its expiry reads as "expired"."""
+    if status == "pending" and expires_at <= now:
+        return "expired"
+    return status
+
+
+def confirmation_matches(typed: str, expected: str) -> bool:
+    """Type-to-confirm check for destructive actions: exact text, ignoring surrounding spaces."""
+    return typed.strip() == expected.strip()
+
+
+def article(word: str) -> str:
+    return "an" if word[:1].lower() in "aeiou" else "a"
+
+
+@dataclass
+class ParsedEmails:
+    """Result of splitting pasted text into addresses, in the order they were typed."""
+
+    valid: list[str] = field(default_factory=list)
+    invalid: list[str] = field(default_factory=list)
+    duplicates: list[str] = field(default_factory=list)
+
+
+def normalise_email(value: str) -> str:
+    return value.strip().strip("<>\"'").lower()
+
+
+def split_addresses(raw: str) -> list[str]:
+    """Split pasted text into address tokens. In a "Name <email>" entry only the bracketed address counts."""
+    tokens: list[str] = []
+    for segment in ENTRY_SEPARATORS.split(raw):
+        tokens.extend(NAMED_ADDRESS.findall(segment) or segment.split())
+    return [token.strip() for token in tokens if token.strip()]
+
+
+def parse_email_list(entries: Iterable[str]) -> ParsedEmails:
+    """Normalise, validate and de-duplicate addresses from one or more pasted strings."""
+    parsed = ParsedEmails()
+    seen: set[str] = set()
+    for entry in entries:
+        for token in split_addresses(entry):
+            email = normalise_email(token)
+            if not email:
+                continue
+            if len(email) > 254 or not EMAIL.match(email):
+                parsed.invalid.append(token.strip())
+            elif email in seen:
+                parsed.duplicates.append(email)
+            else:
+                seen.add(email)
+                parsed.valid.append(email)
+    return parsed
