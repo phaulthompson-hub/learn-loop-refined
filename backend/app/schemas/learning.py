@@ -119,3 +119,125 @@ class SourceDetail(BaseModel):
     created_at: datetime
 
 
+class RecommendationOut(BaseModel):
+    concept_id: int | None
+    concept: str | None
+    mastery: float | None
+    reason: str
+
+
+class CourseSummary(BaseModel):
+    id: int
+    workspace_id: int
+    title: str
+    description: str
+    subject: str
+    difficulty: str
+    status: str
+    color: str
+    tags: list[str]
+    owner_id: int | None
+    created_at: datetime
+    updated_at: datetime
+    concepts: int
+    mastered_concepts: int
+    sources: int
+    attempts: int
+    accuracy: float
+    mastery: float
+    learners: int
+    enrolled: bool
+    pinned: bool
+    last_opened_at: datetime | None
+
+
+class CourseOut(BaseModel):
+    id: int
+    workspace_id: int
+    title: str
+    description: str
+    subject: str
+    difficulty: str
+    status: str
+    color: str
+    tags: list[str]
+    owner_id: int | None
+    created_at: datetime
+    updated_at: datetime
+    mastery: float
+    mastered_concepts: int
+    attempts: int
+    accuracy: float
+    learners: int
+    enrolled: bool
+    pinned: bool
+    concept_count: int
+    source_count: int
+    concepts: list[ConceptOut]
+    sources: list[SourceOut]
+    recommendation: RecommendationOut
+
+
+class CourseFacets(BaseModel):
+    subjects: list[str]
+    tags: list[str]
+    statuses: dict[str, int]
+    difficulties: dict[str, int]
+
+
+class CoursePage(BaseModel):
+    items: list[CourseSummary]
+    total: int
+    page: int
+    page_size: int
+    facets: CourseFacets
+
+
+class Question(BaseModel):
+    id: str
+    concept_id: int
+    concept: str
+    prompt: str
+    options: list[str]
+
+
+class AnswerIn(BaseModel):
+    question_id: StrictStr = Field(min_length=3, max_length=40)
+    concept_id: int
+    selected: int = Field(ge=0, le=3)
+
+
+class AnswerOut(BaseModel):
+    correct: bool
+    correct_index: int
+    concept_id: int
+    concept: str
+    previous_mastery: float
+    mastery: float
+    recommendation: RecommendationOut
+
+
+class AttemptOut(BaseModel):
+    id: int
+    concept_id: int
+    concept_name: str
+    correct: bool
+    mastery_before: float
+    mastery_after: float
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class TutorIn(BaseModel):
+    message: Text(2, 2000)
+
+
+class TutorOut(BaseModel):
+    answer: str
+    citations: list[str]
+    follow_up: str
+    mode: str
+
+
