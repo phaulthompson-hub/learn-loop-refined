@@ -241,3 +241,59 @@ class TutorOut(BaseModel):
     mode: str
 
 
+class EnrollmentUpdate(BaseModel):
+    pinned: bool
+
+
+class ActivityDay(BaseModel):
+    date: date
+    answers: int
+    correct: int
+
+
+class CourseActivity(BaseModel):
+    days: list[ActivityDay]
+    answers: int
+    correct: int
+    accuracy: float
+    active_days: int
+
+
+class ConceptMastery(BaseModel):
+    concept_id: int
+    mastery: float
+
+
+class LearnerProgress(BaseModel):
+    user_id: int
+    name: str
+    email: str
+    avatar_color: str
+    role: str
+    enrolled: bool
+    enrolled_at: datetime | None
+    mastery: float
+    mastered_concepts: int
+    attempts: int
+    accuracy: float
+    last_active_at: datetime | None
+    concepts: list[ConceptMastery]
+
+
+class ConceptRef(BaseModel):
+    id: int
+    name: str
+
+
+class CourseLearners(BaseModel):
+    items: list[LearnerProgress]
+    total: int
+    concepts: list[ConceptRef]
+    average_mastery: float
+    active_last_7_days: int
+
+
+class ProgressReset(BaseModel):
+    attempts_cleared: int
+    concepts_cleared: int
+    course: CourseOut
