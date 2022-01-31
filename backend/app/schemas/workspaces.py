@@ -123,3 +123,43 @@ class InviteResult(BaseModel):
     invitation: InvitationOut | None = None
 
 
+class InviteSummary(BaseModel):
+    invited: int
+    skipped: int
+    results: list[InviteResult]
+
+
+class InvitationWorkspace(BaseModel):
+    name: str
+    color: str
+    description: str
+    members: int
+
+
+class InviterOut(BaseModel):
+    """The inviter as shown on the public landing page (no email address)."""
+
+    name: str
+    avatar_color: str
+
+    class Config:
+        orm_mode = True
+
+
+class InvitationPreview(BaseModel):
+    email: str
+    role: Role
+    status: InvitationStatus
+    expired: bool
+    message: str
+    expires_at: datetime
+    workspace: InvitationWorkspace
+    inviter: InviterOut | None
+    has_account: bool
+    # Only filled in when the request carries a valid session.
+    viewer_email_matches: bool | None = None
+    viewer_is_member: bool | None = None
+
+
+class InvitationAccepted(MeOut):
+    workspace_id: int
