@@ -132,3 +132,128 @@ class CardOut(BaseModel):
     last_reviewed_at: datetime | None
 
 
+class CardPage(BaseModel):
+    items: list[CardOut]
+    total: int
+    page: int
+    page_size: int
+    counts: dict[str, int]
+
+
+class ImportIn(BaseModel):
+    text: StrictStr = Field(max_length=200_000)
+    dry_run: bool = False
+
+
+class ImportedLine(BaseModel):
+    line: int
+    front: str
+    back: str
+    hint: str
+
+
+class RejectedLine(BaseModel):
+    line: int
+    text: str
+    reason: str
+
+
+class ImportOut(BaseModel):
+    accepted: list[ImportedLine]
+    rejected: list[RejectedLine]
+    created: int
+
+
+class GenerateOut(BaseModel):
+    created: list[CardOut]
+    skipped: int
+
+
+# ---------- Reviews ----------
+
+
+class IntervalPreview(BaseModel):
+    grade: int
+    label: str
+    interval_days: int
+    display: str
+
+
+class ReviewCard(BaseModel):
+    id: int
+    deck_id: int
+    deck_name: str
+    course_id: int
+    course_title: str
+    course_color: str
+    front: str
+    back: str
+    hint: str
+    concept_name: str | None
+    status: CardStatus
+    due_at: datetime | None
+    ease: float
+    interval_days: int
+    repetitions: int
+    lapses: int
+    previews: list[IntervalPreview]
+
+
+class ReviewQueueOut(BaseModel):
+    cards: list[ReviewCard]
+    due: int
+    new: int
+    new_limit: int
+    new_allowance: int
+    next_due_at: datetime | None
+
+
+class ReviewIn(BaseModel):
+    grade: int = Field(ge=0, le=3)
+
+
+class ReviewOut(BaseModel):
+    card_id: int
+    grade: int
+    status: CardStatus
+    ease: float
+    interval_before: int
+    interval_days: int
+    repetitions: int
+    lapses: int
+    due_at: datetime
+    display: str
+
+
+class SessionIn(BaseModel):
+    deck_id: int | None = None
+    reviewed: int = Field(ge=1, le=2000)
+    again: int = Field(0, ge=0, le=2000)
+    duration_seconds: int = Field(ge=1, le=4 * 60 * 60)
+
+    @root_validator(skip_on_failure=True)
+    def again_within_reviewed(cls, values: dict) -> dict:
+        if values["again"] > values["reviewed"]:
+            raise ValueError("again cannot exceed the number of reviewed cards")
+        return values
+
+
+class SessionOut(BaseModel):
+    study_log_id: int
+    course_id: int | None
+    minutes: int
+    reviewed: int
+    accuracy: float
+
+
+class ForecastDay(BaseModel):
+    date: date
+    due: int
+
+
+class DailyReviews(BaseModel):
+    date: date
+    reviews: int
+    again: int
+
+
