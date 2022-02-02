@@ -257,3 +257,70 @@ class DailyReviews(BaseModel):
     again: int
 
 
+class ReviewStats(BaseModel):
+    total_cards: int
+    due_today: int
+    new_available: int
+    new_allowance: int
+    reviewed_today: int
+    again_today: int
+    retention_30d: float | None
+    reviews_30d: int
+    learning: int
+    young: int
+    mature: int
+    streak: int
+    next_due_at: datetime | None
+    forecast: list[ForecastDay]
+    history: list[DailyReviews]
+
+
+# ---------- Bulk import parsing ----------
+
+
+def normalise_front(text: str) -> str:
+    """Key used to detect duplicate cards: case- and whitespace-insensitive."""
+    return " ".join(text.split()).casefold()
+
+
+def parse_import(text: str, existing_fronts: Iterable[str] = ()) -> tuple[list[dict], list[dict]]:
+    """Split pasted `front :: back [:: hint]` lines into accepted cards and rejected lines with reasons.
+
+    Blank lines and `#` comments are ignored. Line numbers are 1-based positions in the pasted text.
+    """
+    seen = {normalise_front(front): 0 for front in existing_fronts}
+    accepted: list[dict] = []
+    rejected: list[dict] = []
+    for number, raw in enumerate(text.splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        reason, card = _parse_line(line)
+        if card is not None:
+            key = normalise_front(card["front"])
+            if key in seen:
+                first = seen[key]
+                reason = f"Duplicate of line {first}" if first else "A card with this front already exists"
+                card = None
+            else:
+                seen[key] = number
+        if card is None:
+            rejected.append({"line": number, "text": line[:200], "reason": reason})
+        else:
+            accepted.append({"line": number, **card})
+    return accepted, rejected
+
+
+def _parse_line(line: str) -> tuple[str, dict | None]:
+    if IMPORT_SEPARATOR not in line:
+        return "Missing the ' :: ' separator between front and back", None
+    parts = [part.strip() for part in line.split(IMPORT_SEPARATOR)]
+    if len(parts) > 3:
+        return "Too many ' :: ' separators (use front :: back :: hint)", None
+    front, back, hint = (parts + [""])[:3]
+    for value, label, limit in ((front, "Front", FRONT_MAX), (back, "Back", BACK_MAX), (hint, "Hint", HINT_MAX)):
+        if label != "Hint" and not value:
+            return f"{label} is empty", None
+        if len(value) > limit:
+            return f"{label} is longer than {limit} characters", None
+    return "", {"front": front, "back": back, "hint": hint}
