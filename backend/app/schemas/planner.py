@@ -119,3 +119,72 @@ class EventPatch(BaseModel):
     shared: bool | None = None
 
 
+class PersonOut(BaseModel):
+    id: int
+    name: str
+    avatar_color: str
+
+
+class CourseRef(BaseModel):
+    id: int
+    title: str
+    color: str
+
+
+class EventOut(BaseModel):
+    id: int
+    workspace_id: int
+    title: str
+    kind: str
+    course: CourseRef | None
+    owner: PersonOut
+    starts_at: datetime
+    ends_at: datetime
+    all_day: bool
+    location: str
+    notes: str
+    recurrence: str
+    recurrence_until: date | None
+    shared: bool
+    created_at: datetime
+    can_edit: bool
+
+
+class OccurrenceOut(BaseModel):
+    key: str  # "<event id>:<occurrence index>", unique within a response
+    index: int
+    starts_at: datetime
+    ends_at: datetime
+    event: EventOut
+
+
+class ConflictOut(BaseModel):
+    event_id: int
+    title: str
+    kind: str
+    starts_at: datetime
+    ends_at: datetime
+    index: int
+
+
+class EventSaved(BaseModel):
+    event: EventOut
+    conflicts: list[ConflictOut]
+
+
+class OccurrencePage(BaseModel):
+    items: list[OccurrenceOut]
+    total: int
+    start: datetime
+    end: datetime
+
+
+class AgendaDay(BaseModel):
+    date: date
+    items: list[OccurrenceOut]
+
+
+class AgendaOut(BaseModel):
+    start: date
+    days: list[AgendaDay]
+    total: int
