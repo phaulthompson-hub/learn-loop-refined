@@ -120,3 +120,84 @@ class StudyLogIn(BaseModel):
         return None if value is None else naive_utc(value)
 
 
+class StudyLogPatch(BaseModel):
+    minutes: int | None = None
+    activity: StudyActivity | None = None
+    note: StrictStr | None = None
+    course_id: int | None = None
+    logged_at: datetime | None = None
+
+
+class StudyLogOut(BaseModel):
+    id: int
+    minutes: int
+    activity: str
+    note: str
+    course: CourseRef | None
+    logged_at: datetime
+
+
+class StudyLogPage(BaseModel):
+    items: list[StudyLogOut]
+    total: int
+    page: int
+    page_size: int
+    total_minutes: int
+
+
+class DayMinutes(BaseModel):
+    date: date
+    minutes: int
+
+
+class WeekMinutes(BaseModel):
+    start: date
+    minutes: int
+    days: list[DayMinutes]
+
+
+class CourseMinutes(BaseModel):
+    course_id: int | None
+    title: str
+    color: str | None
+    minutes: int
+
+
+class StudySummaryOut(BaseModel):
+    start: date
+    weeks: list[WeekMinutes]
+    by_course: list[CourseMinutes]
+    total_minutes: int
+    active_days: int
+    average_per_active_day: int
+    today_minutes: int
+    daily_goal_minutes: int
+
+
+class HeatmapDay(BaseModel):
+    date: date
+    answers: int
+    reviews: int
+    minutes: int
+    score: float
+    level: int
+    future: bool
+
+
+class HeatmapOut(BaseModel):
+    start: date
+    end: date
+    weeks: int
+    days: list[HeatmapDay]
+    max_score: float
+    active_days: int
+    totals: dict[str, int]
+
+
+class StreakOut(BaseModel):
+    current: int
+    longest: int
+    active_today: bool
+    active_days_last_30: int
+    week_starts_on: int
+    heatmap: HeatmapOut
