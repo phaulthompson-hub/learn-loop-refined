@@ -128,3 +128,87 @@ class TaskOut(BaseModel):
     completed_at: datetime | None
 
 
+class ChecklistItemOut(BaseModel):
+    id: int
+    text: str
+    done: bool
+    position: int
+
+    class Config:
+        orm_mode = True
+
+
+class CommentOut(BaseModel):
+    id: int
+    task_id: int
+    author: MemberBrief | None
+    body: str
+    mentions: list[int]
+    created_at: datetime
+    edited_at: datetime | None
+    can_edit: bool
+    can_delete: bool
+
+
+class TaskDetail(TaskOut):
+    checklist: list[ChecklistItemOut]
+    comments: list[CommentOut]
+    can_delete: bool
+
+
+class TaskPage(BaseModel):
+    items: list[TaskOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class PositionOut(BaseModel):
+    id: int
+    position: float
+
+
+class MoveOut(BaseModel):
+    task: TaskOut
+    # Positions of every task in the destination column after the move (changes when it was rebalanced).
+    column: list[PositionOut]
+    rebalanced: bool
+
+
+class BoardColumn(BaseModel):
+    status: str
+    title: str
+    count: int
+    points: int
+    wip_limit: int | None
+    over_limit: bool
+    tasks: list[TaskOut]
+
+
+class BoardOut(BaseModel):
+    workspace_id: int
+    prefix: str
+    columns: list[BoardColumn]
+    members: list[MemberOut]
+    labels: list[LabelOut]
+    courses: list[CourseBrief]
+
+
+# ---------- Checklist & comments ----------
+
+
+class ChecklistCreate(BaseModel):
+    text: Text(1, 200)
+
+
+class ChecklistUpdate(BaseModel):
+    text: Text(1, 200) | None = None
+    done: bool | None = None
+
+
+class ChecklistOrder(BaseModel):
+    ids: list[int] = Field(min_items=1, max_items=200)
+
+
+class CommentIn(BaseModel):
+    body: Text(1, 4000)
