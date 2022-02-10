@@ -153,3 +153,129 @@ def create_course(
     return course
 
 
+def add_source(db: Session, course: Course, name: str, text: str, concept_limit: int = 4) -> Source:
+    """Attach more material and append any new concepts it introduces to the end of the chain."""
+    source = Source(course_id=course.id, name=name, content=text, created_at=clock.now())
+    db.add(source)
+    existing = {c.name.lower() for c in course.concepts}
+    previous = course.concepts[-1].id if course.concepts else None
+    next_index = len(course.concepts)
+    for extracted in extract_concepts(text, concept_limit):
+        if extracted.name.lower() in existing:
+            continue
+        concept = Concept(
+            course_id=course.id,
+            name=extracted.name,
+            summary=extracted.summary,
+            order_index=next_index,
+            prerequisite_id=previous,
+        )
+        db.add(concept)
+        db.flush()
+        previous = concept.id
+        next_index += 1
+        existing.add(extracted.name.lower())
+    course.updated_at = clock.now()
+    db.commit()
+    db.refresh(source)
+    return source
+
+
+def set_mastery(db: Session, user_id: int, concept_id: int, value: float) -> None:
+    row = db.scalars(
+        select(ConceptProgress).where(ConceptProgress.user_id == user_id, ConceptProgress.concept_id == concept_id)
+    ).first()
+    if row is None:
+        row = ConceptProgress(user_id=user_id, concept_id=concept_id)
+        db.add(row)
+    row.mastery = value
+    row.updated_at = clock.now()
+
+
+def grade_answer(db: Session, course: Course, user: User, question_id: str, concept_id: int, selected: int) -> dict:
+    view = learner_course(db, course, user.id)
+    key = answer_key(view, question_id, concept_id)
+    if key is None:
+        raise InvalidQuestion("Invalid question")
+    concept = next(c for c in view.concepts if c.id == concept_id)
+    before = round(concept.mastery, 1)
+    correct = key == selected
+    concept.mastery = next_mastery(concept.mastery, correct)
+    after = round(concept.mastery, 1)
+    set_mastery(db, user.id, concept.id, concept.mastery)
+    db.add(
+        Attempt(
+            user_id=user.id,
+            course_id=course.id,
+            concept_id=concept.id,
+            concept_name=concept.name,
+            selected=selected,
+            correct=correct,
+            mastery_before=before,
+            mastery_after=after,
+            created_at=clock.now(),
+        )
+    )
+    if before < MASTERED_THRESHOLD <= after:
+        record(
+            db,
+            workspace_id=course.workspace_id,
+            actor_id=user.id,
+            verb="concept.mastered",
+            object_type="concept",
+            object_id=concept.id,
+            summary=f"mastered {concept.name} in {course.title}",
+            link=f"/courses/{course.id}",
+        )
+        notify(
+            db,
+            user_id=user.id,
+            workspace_id=course.workspace_id,
+            kind="mastery",
+            title=f"You mastered {concept.name}",
+            body=f"{concept.name} reached {round(after)}% in {course.title}.",
+            link=f"/courses/{course.id}",
+        )
+    enrollment = ensure_enrollment(db, user.id, course.id)
+    enrollment.last_opened_at = clock.now()
+    db.commit()
+    return {
+        "correct": correct,
+        "correct_index": key,
+        "concept_id": concept.id,
+        "concept": concept.name,
+        "previous_mastery": before,
+        "mastery": after,
+        "recommendation": recommendation_payload(view.concepts),
+    }
+
+
+def ensure_enrollment(db: Session, user_id: int, course_id: int) -> Enrollment:
+    enrollment = db.scalars(
+        select(Enrollment).where(Enrollment.user_id == user_id, Enrollment.course_id == course_id)
+    ).first()
+    if enrollment is None:
+        enrollment = Enrollment(user_id=user_id, course_id=course_id, enrolled_at=clock.now())
+        db.add(enrollment)
+        db.flush()
+    return enrollment
+
+
+def recommendation_payload(concepts: Sequence[LearnerConcept]) -> dict:
+    rec = recommend(concepts)
+    return {"concept_id": rec.concept_id, "concept": rec.concept, "mastery": rec.mastery, "reason": rec.reason}
+
+
+def concept_payload(concept: LearnerConcept, unlocked: set[int]) -> dict:
+    return {
+        "id": concept.id,
+        "name": concept.name,
+        "summary": concept.summary,
+        "mastery": round(concept.mastery, 1),
+        "order_index": concept.order_index,
+        "prerequisite_id": concept.prerequisite_id,
+        "level": mastery_level(concept.mastery),
+        "unlocked": concept.id in unlocked,
+    }
+
+
