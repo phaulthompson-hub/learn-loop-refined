@@ -279,3 +279,166 @@ def concept_payload(concept: LearnerConcept, unlocked: set[int]) -> dict:
     }
 
 
+def user_attempts(db: Session, user_id: int, course_ids: Sequence[int]) -> list[Attempt]:
+    if not course_ids:
+        return []
+    return list(
+        db.scalars(
+            select(Attempt).where(Attempt.user_id == user_id, Attempt.course_id.in_(course_ids)).order_by(Attempt.id)
+        )
+    )
+
+
+def course_summary(db: Session, course: Course, user_id: int, attempts: Sequence[Attempt] | None = None) -> dict:
+    concepts = learner_concepts(db, course, user_id)
+    mine = attempts if attempts is not None else user_attempts(db, user_id, [course.id])
+    mine = [a for a in mine if a.course_id == course.id]
+    enrollment = next((e for e in course.enrollments if e.user_id == user_id), None)
+    mastered = sum(1 for c in concepts if c.mastery >= MASTERED_THRESHOLD)
+    return {
+        "id": course.id,
+        "workspace_id": course.workspace_id,
+        "title": course.title,
+        "description": course.description,
+        "subject": course.subject,
+        "difficulty": course.difficulty,
+        "status": course.status,
+        "color": course.color,
+        "tags": course.tag_list,
+        "owner_id": course.owner_id,
+        "created_at": course.created_at,
+        "updated_at": course.updated_at,
+        "concepts": len(concepts),
+        "mastered_concepts": mastered,
+        "sources": len(course.sources),
+        "attempts": len(mine),
+        "accuracy": round(100 * sum(a.correct for a in mine) / len(mine), 1) if mine else 0.0,
+        "mastery": average_mastery(concepts),
+        "learners": len(course.enrollments),
+        "enrolled": enrollment is not None,
+        "pinned": bool(enrollment and enrollment.pinned),
+        "last_opened_at": enrollment.last_opened_at if enrollment else None,
+    }
+
+
+def course_detail(db: Session, course: Course, user_id: int) -> dict:
+    concepts = learner_concepts(db, course, user_id)
+    unlocked = unlocked_ids(concepts)
+    summary = course_summary(db, course, user_id)
+    return {
+        **summary,
+        "concepts": [concept_payload(c, unlocked) for c in concepts],
+        "sources": [source_payload(s) for s in course.sources],
+        "concept_count": summary["concepts"],
+        "source_count": summary["sources"],
+        "recommendation": recommendation_payload(concepts),
+    }
+
+
+def recent_attempts(db: Session, course: Course, user_id: int, limit: int = 10) -> list[Attempt]:
+    return list(
+        db.scalars(
+            select(Attempt)
+            .where(Attempt.course_id == course.id, Attempt.user_id == user_id)
+            .order_by(Attempt.id.desc())
+            .limit(limit)
+        )
+    )
+
+
+def source_payload(source: Source) -> dict:
+    return {
+        "id": source.id,
+        "name": source.name,
+        "characters": len(source.content),
+        "words": len(source.content.split()),
+        "created_at": source.created_at,
+    }
+
+
+def remove_source(db: Session, course: Course, source: Source) -> None:
+    """Delete one source. Concepts it introduced stay: they may already carry learners' progress."""
+    if len(course.sources) <= 1:
+        raise ValueError("A course needs at least one source; add another before removing this one")
+    db.delete(source)
+    course.updated_at = clock.now()
+    db.commit()
+    db.refresh(course)
+
+
+def rename_concept(db: Session, course: Course, concept: Concept, name: str | None, summary: str | None) -> None:
+    if name is not None:
+        clash = next((c for c in course.concepts if c.id != concept.id and c.name.lower() == name.lower()), None)
+        if clash is not None:
+            raise ValueError(f"Another concept in this course is already called {clash.name}")
+        concept.name = name
+    if summary is not None:
+        concept.summary = summary
+    course.updated_at = clock.now()
+    db.commit()
+    db.refresh(course)
+
+
+def reorder_concepts(db: Session, course: Course, ordered_ids: Sequence[int]) -> None:
+    """Put the concepts in the given order and rebuild the prerequisite chain to match it."""
+    by_id = {c.id: c for c in course.concepts}
+    if sorted(ordered_ids) != sorted(by_id):
+        raise ValueError("List every concept of this course exactly once")
+    previous: int | None = None
+    for index, concept_id in enumerate(ordered_ids):
+        concept = by_id[concept_id]
+        concept.order_index = index
+        concept.prerequisite_id = previous
+        previous = concept.id
+    course.updated_at = clock.now()
+    db.commit()
+    db.refresh(course)
+
+
+def duplicate_course(db: Session, course: Course, owner: User, title: str | None = None) -> Course:
+    """Copy a course's sources and concepts into a new draft owned by `owner`. Nobody's progress is copied."""
+    copy = Course(
+        workspace_id=course.workspace_id,
+        owner_id=owner.id,
+        title=(title or f"Copy of {course.title}")[:160],
+        description=course.description,
+        subject=course.subject,
+        difficulty=course.difficulty,
+        tags=course.tags,
+        status="draft",
+        color=course.color,
+        created_at=clock.now(),
+        updated_at=clock.now(),
+    )
+    db.add(copy)
+    db.flush()
+    for source in course.sources:
+        db.add(Source(course_id=copy.id, name=source.name, content=source.content, created_at=clock.now()))
+    previous: int | None = None
+    for concept in course.concepts:
+        clone = Concept(
+            course_id=copy.id,
+            name=concept.name,
+            summary=concept.summary,
+            order_index=concept.order_index,
+            prerequisite_id=previous,
+        )
+        db.add(clone)
+        db.flush()
+        previous = clone.id
+    db.add(Enrollment(user_id=owner.id, course_id=copy.id, enrolled_at=clock.now()))
+    record(
+        db,
+        workspace_id=copy.workspace_id,
+        actor_id=owner.id,
+        verb="course.duplicated",
+        object_type="course",
+        object_id=copy.id,
+        summary=f"duplicated {course.title} as {copy.title}",
+        link=f"/courses/{copy.id}",
+    )
+    db.commit()
+    db.refresh(copy)
+    return copy
+
+
