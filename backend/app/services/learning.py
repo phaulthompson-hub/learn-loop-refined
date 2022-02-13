@@ -442,3 +442,135 @@ def duplicate_course(db: Session, course: Course, owner: User, title: str | None
     return copy
 
 
+def delete_course(db: Session, course: Course, actor: User) -> None:
+    concept_ids = [c.id for c in course.concepts]
+    if concept_ids:
+        db.execute(delete(ConceptProgress).where(ConceptProgress.concept_id.in_(concept_ids)))
+    record(
+        db,
+        workspace_id=course.workspace_id,
+        actor_id=actor.id,
+        verb="course.deleted",
+        object_type="course",
+        object_id=None,
+        summary=f"deleted the course {course.title}",
+    )
+    db.delete(course)
+    db.commit()
+
+
+def reset_progress(db: Session, course: Course, user: User) -> tuple[int, int]:
+    """Forget one learner's mastery and quiz answers for a course. Returns (attempts, concepts) cleared."""
+    concept_ids = [c.id for c in course.concepts]
+    concepts_cleared = 0
+    if concept_ids:
+        concepts_cleared = db.execute(
+            delete(ConceptProgress).where(
+                ConceptProgress.user_id == user.id, ConceptProgress.concept_id.in_(concept_ids)
+            )
+        ).rowcount
+    attempts_cleared = db.execute(
+        delete(Attempt).where(Attempt.user_id == user.id, Attempt.course_id == course.id)
+    ).rowcount
+    record(
+        db,
+        workspace_id=course.workspace_id,
+        actor_id=user.id,
+        verb="course.progress_reset",
+        object_type="course",
+        object_id=course.id,
+        summary=f"reset their progress in {course.title}",
+        link=f"/courses/{course.id}",
+        detail=f"{attempts_cleared} answers and {concepts_cleared} concept scores cleared",
+    )
+    db.commit()
+    db.expire_all()
+    return attempts_cleared, concepts_cleared
+
+
+def daily_activity(attempts: Sequence[Attempt], today: date, days: int = 14) -> list[dict]:
+    """Answers and correct answers per day for the `days` days ending today (oldest first, empty days included)."""
+    first = today - timedelta(days=days - 1)
+    buckets = {first + timedelta(days=offset): [0, 0] for offset in range(days)}
+    for attempt in attempts:
+        bucket = buckets.get(attempt.created_at.date())
+        if bucket is not None:
+            bucket[0] += 1
+            bucket[1] += int(attempt.correct)
+    return [{"date": day, "answers": answers, "correct": correct} for day, (answers, correct) in buckets.items()]
+
+
+def course_activity(db: Session, course: Course, user_id: int, days: int = 14) -> dict:
+    today = clock.today()
+    since = datetime.combine(today - timedelta(days=days - 1), datetime.min.time())
+    attempts = db.scalars(
+        select(Attempt).where(Attempt.course_id == course.id, Attempt.user_id == user_id, Attempt.created_at >= since)
+    ).all()
+    series = daily_activity(attempts, today, days)
+    answers = sum(d["answers"] for d in series)
+    correct = sum(d["correct"] for d in series)
+    return {
+        "days": series,
+        "answers": answers,
+        "correct": correct,
+        "accuracy": round(100 * correct / answers, 1) if answers else 0.0,
+        "active_days": sum(1 for d in series if d["answers"]),
+    }
+
+
+def course_learners(db: Session, course: Course) -> dict:
+    """Every workspace member who follows the course or has answered its questions, with their progress."""
+    enrollments = {e.user_id: e for e in course.enrollments}
+    attempts = db.scalars(select(Attempt).where(Attempt.course_id == course.id).order_by(Attempt.id)).all()
+    by_user: dict[int, list[Attempt]] = {}
+    for attempt in attempts:
+        by_user.setdefault(attempt.user_id, []).append(attempt)
+    members = {
+        m.user_id: m for m in db.scalars(select(Membership).where(Membership.workspace_id == course.workspace_id)).all()
+    }
+    user_ids = [uid for uid in {*enrollments, *by_user} if uid in members]
+    concept_ids = [c.id for c in course.concepts]
+    progress: dict[int, dict[int, float]] = {}
+    if concept_ids and user_ids:
+        rows = db.execute(
+            select(ConceptProgress.user_id, ConceptProgress.concept_id, ConceptProgress.mastery).where(
+                ConceptProgress.concept_id.in_(concept_ids), ConceptProgress.user_id.in_(user_ids)
+            )
+        ).all()
+        for uid, concept_id, value in rows:
+            progress.setdefault(uid, {})[concept_id] = value
+    week_ago = clock.now() - timedelta(days=7)
+    items = []
+    for uid in user_ids:
+        member, mine, enrollment = members[uid], by_user.get(uid, []), enrollments.get(uid)
+        mastery = [progress.get(uid, {}).get(cid, INITIAL_MASTERY) for cid in concept_ids]
+        moments = [a.created_at for a in mine] + ([enrollment.last_opened_at] if enrollment else [])
+        last_active = max((m for m in moments if m is not None), default=None)
+        items.append(
+            {
+                "user_id": uid,
+                "name": member.user.name,
+                "email": member.user.email,
+                "avatar_color": member.user.avatar_color,
+                "role": member.role,
+                "enrolled": enrollment is not None,
+                "enrolled_at": enrollment.enrolled_at if enrollment else None,
+                "mastery": round(sum(mastery) / len(mastery), 1) if mastery else 0.0,
+                "mastered_concepts": sum(1 for value in mastery if value >= MASTERED_THRESHOLD),
+                "attempts": len(mine),
+                "accuracy": round(100 * sum(a.correct for a in mine) / len(mine), 1) if mine else 0.0,
+                "last_active_at": last_active,
+                "concepts": [
+                    {"concept_id": cid, "mastery": round(value, 1)}
+                    for cid, value in zip(concept_ids, mastery, strict=True)
+                ],
+            }
+        )
+    items.sort(key=lambda item: (-item["mastery"], item["name"].lower()))
+    return {
+        "items": items,
+        "total": len(items),
+        "concepts": [{"id": c.id, "name": c.name} for c in course.concepts],
+        "average_mastery": round(sum(i["mastery"] for i in items) / len(items), 1) if items else 0.0,
+        "active_last_7_days": sum(1 for i in items if i["last_active_at"] and i["last_active_at"] >= week_ago),
+    }
