@@ -121,3 +121,135 @@ def goal_period(goal: Goal, now: datetime, week_starts_on: int = 0) -> Period:
     return Period(start, end, f"Due {_day_label(goal.due_date)} {goal.due_date.year}")
 
 
+def elapsed_fraction(start: datetime, end: datetime | None, now: datetime) -> float:
+    """Share of [start, end) that has passed, clamped to 0..1 (0 for open-ended periods)."""
+    if end is None or end <= start:
+        return 0.0
+    return min(1.0, max(0.0, (now - start) / (end - start)))
+
+
+def goal_status(current: float, target: float, fraction: float, *, overdue: bool, baseline: float = 0.0) -> str:
+    """done / overdue / on_track / at_risk.
+
+    Expected progress grows linearly from `baseline` (where every learner starts, e.g. the
+    initial 35% mastery) to `target` over the period; falling below PACE_TOLERANCE of the
+    expected gain puts the goal at risk.
+    """
+    if current >= target:
+        return "done"
+    if overdue:
+        return "overdue"
+    expected_gain = (target - baseline) * fraction
+    if expected_gain <= 0:
+        return "on_track"
+    return "on_track" if current - baseline >= expected_gain * PACE_TOLERANCE else "at_risk"
+
+
+# ---------- Measuring goals against real activity ----------
+
+
+def _workspace_courses(workspace_id: int):
+    return select(Course.id).where(Course.workspace_id == workspace_id)
+
+
+def study_log_scope(workspace_id: int):
+    """StudyLog rows that belong to a workspace: general study time or time on one of its courses."""
+    return or_(StudyLog.course_id.is_(None), StudyLog.course_id.in_(_workspace_courses(workspace_id)))
+
+
+def _count_in_window(db: Session, goal: Goal, period: Period, model, column) -> int:
+    query = select(func.count()).select_from(model).where(model.user_id == goal.user_id, column >= period.start)
+    if period.end is not None:
+        query = query.where(column < period.end)
+    if goal.course_id is not None:
+        query = query.where(model.course_id == goal.course_id)
+    else:
+        query = query.where(model.course_id.in_(_workspace_courses(goal.workspace_id)))
+    return db.scalar(query) or 0
+
+
+def _minutes_in_window(db: Session, goal: Goal, period: Period) -> int:
+    query = select(func.coalesce(func.sum(StudyLog.minutes), 0)).where(
+        StudyLog.user_id == goal.user_id, StudyLog.logged_at >= period.start
+    )
+    if period.end is not None:
+        query = query.where(StudyLog.logged_at < period.end)
+    if goal.course_id is not None:
+        query = query.where(StudyLog.course_id == goal.course_id)
+    else:
+        query = query.where(study_log_scope(goal.workspace_id))
+    return int(db.scalar(query) or 0)
+
+
+def goal_current(db: Session, goal: Goal, period: Period) -> float:
+    if goal.kind == "daily_answers":
+        return _count_in_window(db, goal, period, Attempt, Attempt.created_at)
+    if goal.kind == "weekly_reviews":
+        return _count_in_window(db, goal, period, ReviewLog, ReviewLog.reviewed_at)
+    if goal.kind == "study_minutes":
+        return _minutes_in_window(db, goal, period)
+    course = db.get(Course, goal.course_id) if goal.course_id else None
+    return average_mastery(learner_concepts(db, course, goal.user_id)) if course else 0.0
+
+
+def goal_progress(db: Session, goal: Goal) -> dict:
+    """Progress of one goal right now: current value, pace status and a human period label."""
+    now = clock.now()
+    user = db.get(User, goal.user_id)
+    period = goal_period(goal, now, user.week_starts_on if user else 0)
+    current = goal_current(db, goal, period)
+    target = goal.target
+    overdue = goal.period == "once" and goal.due_date is not None and goal.due_date < now.date()
+    baseline = min(INITIAL_MASTERY, target) if goal.kind == "course_mastery" else 0.0
+    fraction = elapsed_fraction(period.start, period.end, now)
+    days_left = None if period.end is None else max(0, (period.end.date() - now.date()).days - 1)
+    return {
+        "current": round(current, 1),
+        "target": target,
+        "percent": min(100, round(100 * current / target)) if target > 0 else 0,
+        "remaining": round(max(0.0, target - current), 1),
+        "expected": round(baseline + (target - baseline) * fraction, 1),
+        "status": goal_status(current, target, fraction, overdue=overdue, baseline=baseline),
+        "unit": GOAL_UNITS[goal.kind],
+        "period_label": period.label,
+        "period_start": period.start,
+        "period_end": period.end,
+        "days_left": days_left,
+    }
+
+
+# ---------- Activity heatmap and study-time summaries ----------
+
+
+def activity_score(answers: int, reviews: int, minutes: int) -> float:
+    return answers + reviews + minutes / MINUTES_PER_POINT
+
+
+def intensity_level(score: float, max_score: float) -> int:
+    """0 for no activity, otherwise 1..4 relative to the busiest day in view."""
+    if score <= 0 or max_score <= 0:
+        return 0
+    return min(HEATMAP_LEVELS, max(1, math.ceil(HEATMAP_LEVELS * score / max_score)))
+
+
+def daily_activity(db: Session, user_id: int, start: date, end: date) -> dict[date, dict[str, int]]:
+    """Answers, reviews and logged minutes per day in [start, end)."""
+    begin = datetime.combine(start, datetime.min.time())
+    finish = datetime.combine(end, datetime.min.time())
+    counts: dict[date, dict[str, int]] = defaultdict(lambda: {"answers": 0, "reviews": 0, "minutes": 0})
+    for key, column, model in (
+        ("answers", Attempt.created_at, Attempt),
+        ("reviews", ReviewLog.reviewed_at, ReviewLog),
+    ):
+        for moment in db.scalars(select(column).where(model.user_id == user_id, column >= begin, column < finish)):
+            counts[moment.date()][key] += 1
+    minutes = db.execute(
+        select(StudyLog.logged_at, StudyLog.minutes).where(
+            StudyLog.user_id == user_id, StudyLog.logged_at >= begin, StudyLog.logged_at < finish
+        )
+    )
+    for moment, amount in minutes:
+        counts[moment.date()]["minutes"] += amount
+    return counts
+
+
