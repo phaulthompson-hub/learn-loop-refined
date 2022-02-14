@@ -253,3 +253,74 @@ def daily_activity(db: Session, user_id: int, start: date, end: date) -> dict[da
     return counts
 
 
+def activity_heatmap(db: Session, user_id: int, today: date, weeks: int = 12, week_starts_on: int = 0) -> dict:
+    """`weeks` full columns ending with the current week; days after today are flagged `future`."""
+    start = clock.start_of_week(today, week_starts_on) - timedelta(weeks=weeks - 1)
+    end = start + timedelta(weeks=weeks)
+    counts = daily_activity(db, user_id, start, end)
+    days = []
+    for offset in range((end - start).days):
+        day = start + timedelta(days=offset)
+        entry = counts.get(day, {"answers": 0, "reviews": 0, "minutes": 0})
+        days.append({"date": day, **entry, "score": activity_score(**entry), "future": day > today})
+    max_score = max((d["score"] for d in days), default=0)
+    for entry in days:
+        entry["level"] = intensity_level(entry["score"], max_score)
+        entry["score"] = round(entry["score"], 1)
+    active = [d for d in days if d["score"] > 0]
+    return {
+        "start": start,
+        "end": end - timedelta(days=1),
+        "weeks": weeks,
+        "days": days,
+        "max_score": round(max_score, 1),
+        "active_days": len(active),
+        "totals": {key: sum(d[key] for d in days) for key in ("answers", "reviews", "minutes")},
+    }
+
+
+def study_summary(
+    db: Session, user_id: int, workspace_id: int, today: date, weeks: int = 4, week_starts_on: int = 0
+) -> dict:
+    """Minutes per day and per week over the last `weeks` weeks, plus a per-course split."""
+    start = clock.start_of_week(today, week_starts_on) - timedelta(weeks=weeks - 1)
+    begin = datetime.combine(start, datetime.min.time())
+    rows = db.execute(
+        select(StudyLog.logged_at, StudyLog.minutes, StudyLog.course_id).where(
+            StudyLog.user_id == user_id, StudyLog.logged_at >= begin, study_log_scope(workspace_id)
+        )
+    ).all()
+    per_day: dict[date, int] = defaultdict(int)
+    per_course: dict[int | None, int] = defaultdict(int)
+    for moment, minutes, course_id in rows:
+        per_day[moment.date()] += minutes
+        per_course[course_id] += minutes
+    week_rows = []
+    for week in range(weeks):
+        first = start + timedelta(weeks=week)
+        days = [
+            {"date": first + timedelta(days=i), "minutes": per_day.get(first + timedelta(days=i), 0)} for i in range(7)
+        ]
+        week_rows.append({"start": first, "minutes": sum(d["minutes"] for d in days), "days": days})
+    courses = {c.id: c for c in db.scalars(select(Course).where(Course.id.in_([k for k in per_course if k])))}
+    by_course = [
+        {
+            "course_id": course_id,
+            "title": courses[course_id].title if course_id in courses else "General study",
+            "color": courses[course_id].color if course_id in courses else None,
+            "minutes": minutes,
+        }
+        for course_id, minutes in per_course.items()
+    ]
+    by_course.sort(key=lambda row: (-row["minutes"], row["title"]))
+    total = sum(per_course.values())
+    active_days = sum(1 for minutes in per_day.values() if minutes > 0)
+    return {
+        "start": start,
+        "weeks": week_rows,
+        "by_course": by_course,
+        "total_minutes": total,
+        "active_days": active_days,
+        "average_per_active_day": round(total / active_days) if active_days else 0,
+        "today_minutes": per_day.get(today, 0),
+    }
