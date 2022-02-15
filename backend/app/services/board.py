@@ -266,3 +266,72 @@ def task_summary(task: Task, ctx: BoardContext) -> dict:
     }
 
 
+def comment_payload(comment: TaskComment, ctx: BoardContext, viewer_id: int, viewer_is_admin: bool) -> dict:
+    people = [(uid, ctx.people[uid].name) for uid in sorted(ctx.member_ids) if uid in ctx.people]
+    return {
+        "id": comment.id,
+        "task_id": comment.task_id,
+        "author": person(ctx.people.get(comment.author_id)),
+        "body": comment.body,
+        "mentions": mentioned_ids(comment.body, people),
+        "created_at": comment.created_at,
+        "edited_at": comment.edited_at,
+        "can_edit": comment.author_id == viewer_id,
+        "can_delete": comment.author_id == viewer_id or viewer_is_admin,
+    }
+
+
+def can_delete_task(task: Task, viewer_id: int, viewer_is_admin: bool) -> bool:
+    return viewer_is_admin or viewer_id in (task.reporter_id, task.assignee_id)
+
+
+def task_detail(task: Task, ctx: BoardContext, viewer_id: int, viewer_is_admin: bool) -> dict:
+    return {
+        **task_summary(task, ctx),
+        "checklist": list(task.checklist),
+        "comments": [comment_payload(c, ctx, viewer_id, viewer_is_admin) for c in task.comments],
+        "can_delete": can_delete_task(task, viewer_id, viewer_is_admin),
+    }
+
+
+def column_tasks(db: Session, workspace_id: int, status: str, exclude_id: int | None = None) -> list[Task]:
+    """Tasks of one column in display order, optionally without the task being moved."""
+    query = select(Task).where(Task.workspace_id == workspace_id, Task.status == status)
+    if exclude_id is not None:
+        query = query.where(Task.id != exclude_id)
+    return list(db.scalars(query.order_by(Task.position, Task.id)))
+
+
+def next_number(db: Session, workspace_id: int) -> int:
+    return (db.scalar(select(func.max(Task.number)).where(Task.workspace_id == workspace_id)) or 0) + 1
+
+
+def board_payload(db: Session, ctx: BoardContext, members: Sequence[Membership]) -> dict:
+    tasks = board_order(db.scalars(select(Task).where(Task.workspace_id == ctx.workspace_id)).all())
+    columns = []
+    for status in TASK_STATUSES:
+        in_column = [t for t in tasks if t.status == status]
+        columns.append(
+            {
+                "status": status,
+                "title": COLUMN_TITLES[status],
+                "count": len(in_column),
+                "points": column_points(t.estimate for t in in_column),
+                "wip_limit": WIP_LIMITS.get(status),
+                "over_limit": over_wip_limit(status, len(in_column)),
+                "tasks": [task_summary(t, ctx) for t in in_column],
+            }
+        )
+    member_rows = sorted(members, key=lambda m: m.user.name.lower())
+    return {
+        "workspace_id": ctx.workspace_id,
+        "prefix": ctx.prefix,
+        "columns": columns,
+        "members": [{**person(m.user), "role": m.role} for m in member_rows],
+        "labels": workspace_labels(db, ctx.workspace_id),
+        "courses": [
+            {"id": c.id, "title": c.title, "color": c.color}
+            for c in sorted(ctx.courses.values(), key=lambda c: c.title.lower())
+            if c.status == "active"
+        ],
+    }
