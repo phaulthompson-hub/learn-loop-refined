@@ -132,3 +132,48 @@ class TestMentions:
         assert mentioned_ids("hey @Cher", [(9, "Cher")]) == [9]
 
 
+class TestColumns:
+    def test_points_ignore_missing_estimates(self):
+        assert column_points([3, None, 5, 0]) == 8
+
+    def test_wip_limit(self):
+        assert not over_wip_limit("in_progress", 6)
+        assert over_wip_limit("in_progress", 7)
+        assert over_wip_limit("review", 5)
+        assert not over_wip_limit("todo", 100)
+
+
+class TestTaskMatches:
+    def match(self, task, **filters):
+        return task_matches(task, TaskFilters(**filters), "NDA-4", MONDAY)
+
+    def test_empty_filters_match_everything(self):
+        assert self.match(FakeTask())
+
+    def test_status_list(self):
+        assert self.match(FakeTask(status="review"), statuses=["todo", "review"])
+        assert not self.match(FakeTask(status="done"), statuses=["todo", "review"])
+
+    def test_assignee_and_unassigned(self):
+        assert self.match(FakeTask(assignee_id=3), assignee_id=3)
+        assert not self.match(FakeTask(assignee_id=3), assignee_id=4)
+        assert self.match(FakeTask(), unassigned=True)
+        assert not self.match(FakeTask(assignee_id=3), unassigned=True)
+
+    def test_label_course_priority(self):
+        task = FakeTask(labels=[FakeLabel(7, "Reading")], course_id=2, priority="high")
+        assert self.match(task, label_id=7, course_id=2, priority="high")
+        assert not self.match(task, label_id=8)
+        assert not self.match(task, course_id=3)
+        assert not self.match(task, priority="low")
+
+    def test_search_covers_key_description_and_labels(self):
+        task = FakeTask(title="Joins", description="left and inner joins", labels=[FakeLabel(1, "Exam prep")])
+        assert self.match(task, q="nda-4")
+        assert self.match(task, q="inner")
+        assert self.match(task, q="exam joins")
+        assert not self.match(task, q="gradient")
+
+    def test_due_filter(self):
+        assert self.match(FakeTask(due_date=date(2022, 2, 27)), due="overdue")
+        assert not self.match(FakeTask(due_date=date(2022, 3, 28)), due="overdue")
