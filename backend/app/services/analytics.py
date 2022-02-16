@@ -123,3 +123,128 @@ def in_period(rows: Iterable[T], period: Period, moment: Callable[[T], datetime]
 # ---------- Daily series ----------
 
 
+def daily_series(
+    days: Sequence[date],
+    attempts: Iterable[AttemptLike],
+    reviews: Iterable[ReviewLike],
+    logs: Iterable[StudyLike],
+) -> list[dict]:
+    """One row per day with correct/incorrect answers, flashcard reviews and study minutes."""
+    rows = {day: {"date": day, "correct": 0, "incorrect": 0, "reviews": 0, "minutes": 0} for day in days}
+    for attempt in attempts:
+        row = rows.get(attempt.created_at.date())
+        if row is not None:
+            row["correct" if attempt.correct else "incorrect"] += 1
+    for review in reviews:
+        row = rows.get(review.reviewed_at.date())
+        if row is not None:
+            row["reviews"] += 1
+    for log in logs:
+        row = rows.get(log.logged_at.date())
+        if row is not None:
+            row["minutes"] += log.minutes
+    return [rows[day] for day in days]
+
+
+def active_days(
+    period: Period, attempts: Iterable[AttemptLike], reviews: Iterable[ReviewLike], logs: Iterable[StudyLike]
+) -> int:
+    """Distinct days in the period with at least one answer, review or logged study session."""
+    days = {a.created_at.date() for a in attempts}
+    days |= {r.reviewed_at.date() for r in reviews}
+    days |= {log.logged_at.date() for log in logs}
+    return sum(1 for day in days if period.contains(day))
+
+
+# ---------- Mastery reconstruction ----------
+
+
+def _chronological(attempts: Iterable[AttemptLike]) -> list[AttemptLike]:
+    return sorted(attempts, key=lambda a: a.created_at)
+
+
+def mastery_snapshot(
+    concept_ids: Iterable[int], attempts: Iterable[AttemptLike], before: datetime, initial: float = INITIAL_MASTERY
+) -> dict[int, float]:
+    """Each concept's mastery just before `before`, replayed from attempt history."""
+    snapshot = dict.fromkeys(concept_ids, initial)
+    for attempt in _chronological(attempts):
+        if attempt.created_at >= before:
+            break
+        if attempt.concept_id in snapshot:
+            snapshot[attempt.concept_id] = attempt.mastery_after
+    return snapshot
+
+
+def average(values: Iterable[float]) -> float:
+    items = list(values)
+    return round(sum(items) / len(items), 1) if items else 0.0
+
+
+def mastery_timeline(
+    concept_ids: Sequence[int], attempts: Iterable[AttemptLike], days: Sequence[date], initial: float = INITIAL_MASTERY
+) -> list[float]:
+    """Average mastery across `concept_ids` at the end of each day in `days` (days must be ascending)."""
+    if not concept_ids:
+        return [0.0 for _ in days]
+    current = dict.fromkeys(concept_ids, initial)
+    ordered = _chronological(a for a in attempts if a.concept_id in current)
+    cursor = 0
+    timeline: list[float] = []
+    for day in days:
+        day_end = datetime.combine(day + timedelta(days=1), time.min)
+        while cursor < len(ordered) and ordered[cursor].created_at < day_end:
+            current[ordered[cursor].concept_id] = ordered[cursor].mastery_after
+            cursor += 1
+        timeline.append(average(current.values()))
+    return timeline
+
+
+def mastered_count(masteries: Iterable[float]) -> int:
+    return sum(1 for value in masteries if value >= MASTERED_THRESHOLD)
+
+
+# ---------- Per-concept statistics ----------
+
+
+@dataclass
+class ConceptStats:
+    attempts: int = 0
+    correct: int = 0
+    last_practiced: datetime | None = None
+
+    @property
+    def accuracy(self) -> float:
+        return accuracy(self.correct, self.attempts)
+
+
+def concept_stats(attempts: Iterable[AttemptLike], period: Period | None = None) -> dict[int, ConceptStats]:
+    """Attempts and accuracy per concept inside `period`; `last_practiced` always spans all history."""
+    stats: dict[int, ConceptStats] = defaultdict(ConceptStats)
+    for attempt in attempts:
+        entry = stats[attempt.concept_id]
+        if entry.last_practiced is None or attempt.created_at > entry.last_practiced:
+            entry.last_practiced = attempt.created_at
+        if period is None or period.contains(attempt.created_at):
+            entry.attempts += 1
+            entry.correct += int(attempt.correct)
+    return dict(stats)
+
+
+def weakest(rows: Iterable[dict], limit: int = 5) -> list[dict]:
+    """Unlocked, not-yet-mastered concepts from lowest to highest mastery."""
+    open_rows = [r for r in rows if r["unlocked"] and r["mastery"] < MASTERED_THRESHOLD]
+    return sorted(open_rows, key=lambda r: (r["mastery"], r["name"].lower()))[:limit]
+
+
+# ---------- Flashcards ----------
+
+
+def retention(grades: Iterable[int]) -> float | None:
+    """Share of reviews graded good or easy, as a percentage; None when there were no reviews."""
+    items = list(grades)
+    if not items:
+        return None
+    return round(100 * sum(1 for g in items if g >= REMEMBERED_GRADE) / len(items), 1)
+
+
