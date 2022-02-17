@@ -248,3 +248,51 @@ def retention(grades: Iterable[int]) -> float | None:
     return round(100 * sum(1 for g in items if g >= REMEMBERED_GRADE) / len(items), 1)
 
 
+def grade_counts(grades: Iterable[int]) -> dict[str, int]:
+    counts = Counter(grades)
+    return {name: counts.get(index, 0) for index, name in enumerate(GRADE_NAMES)}
+
+
+def forecast(due_dates: Iterable[datetime], today: date, days: int = FORECAST_DAYS) -> list[dict]:
+    """Cards falling due on each of the next `days` days; overdue cards count towards today."""
+    buckets = dict.fromkeys((today + timedelta(days=offset) for offset in range(days)), 0)
+    last = today + timedelta(days=days - 1)
+    for due in due_dates:
+        day = max(due.date(), today)
+        if day <= last:
+            buckets[day] += 1
+    return [{"date": day, "count": count} for day, count in buckets.items()]
+
+
+# ---------- Study time ----------
+
+
+def minutes_by(logs: Iterable[T], key: Callable[[T], object], minutes: Callable[[T], int]) -> dict:
+    """Total minutes grouped by `key`, largest first."""
+    totals: dict = defaultdict(int)
+    for log in logs:
+        totals[key(log)] += minutes(log)
+    return dict(sorted(totals.items(), key=lambda item: -item[1]))
+
+
+# ---------- Leaderboard ----------
+
+
+def first_name(name: str) -> str:
+    return name.split()[0] if name.strip() else name
+
+
+def rank_leaderboard(rows: Iterable[dict], viewer_id: int) -> list[dict]:
+    """Rank members by answers, then accuracy. Ties share a rank ("1, 1, 3") and the viewer is flagged.
+
+    Each input row needs `user_id`, `name`, `answers` and `correct`.
+    """
+    scored = [{**row, "accuracy": accuracy(row["correct"], row["answers"])} for row in rows]
+    scored.sort(key=lambda r: (-r["answers"], -r["accuracy"], r["name"].lower()))
+    ranked: list[dict] = []
+    for index, row in enumerate(scored):
+        previous = ranked[-1] if ranked else None
+        tied = previous and (previous["answers"], previous["accuracy"]) == (row["answers"], row["accuracy"])
+        rank = previous["rank"] if tied else index + 1
+        ranked.append({**row, "rank": rank, "is_me": row["user_id"] == viewer_id})
+    return ranked
