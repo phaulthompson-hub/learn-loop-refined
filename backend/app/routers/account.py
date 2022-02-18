@@ -138,3 +138,64 @@ def change_password(
 # ---------- Sessions ----------
 
 
+@router.get("/sessions", response_model=list[SessionOut])
+def list_sessions(session: AuthSession = Depends(current_session), db: Session = Depends(get_db)):
+    """Unexpired sign-ins: the current one first, then the most recently used."""
+    now = clock.now()
+    sessions = [s for s in user_sessions(db, session.user) if s.expires_at > now]
+    sessions.sort(key=lambda s: (s.id != session.id, -s.last_seen_at.timestamp(), -s.id))
+    return [
+        {
+            "id": s.id,
+            "device": describe_user_agent(s.user_agent),
+            "user_agent": s.user_agent,
+            "created_at": s.created_at,
+            "last_seen_at": s.last_seen_at,
+            "expires_at": s.expires_at,
+            "current": s.id == session.id,
+        }
+        for s in sessions
+    ]
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+def revoke_session(session_id: int, session: AuthSession = Depends(current_session), db: Session = Depends(get_db)):
+    target = db.get(AuthSession, session_id)
+    if target is None or target.user_id != session.user_id:
+        raise HTTPException(404, "Session not found")
+    if target.id == session.id:
+        raise HTTPException(409, "This is the session you are using. Sign out instead")
+    db.delete(target)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/sessions/revoke-others", response_model=SessionsRevoked)
+def revoke_other_sessions(session: AuthSession = Depends(current_session), db: Session = Depends(get_db)):
+    revoked = revoke(db, user_sessions(db, session.user, except_session=session))
+    db.commit()
+    return {"revoked": revoked}
+
+
+# ---------- Deactivation ----------
+
+
+@router.post("/deactivate", status_code=204)
+def deactivate(data: DeactivateIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Disable sign-in for this account and end every session.
+
+    Memberships are kept so the account can be restored later, but nobody may leave a shared
+    workspace without an active owner.
+    """
+    require_password(user, data.password)
+    blockers = deactivation_blockers(seats_for(db, user))
+    if blockers:
+        raise HTTPException(
+            409,
+            f"You are the only owner of {', '.join(blockers)}. "
+            "Make another member an owner before deactivating your account",
+        )
+    user.is_active = False
+    revoke(db, user_sessions(db, user))
+    db.commit()
+    return Response(status_code=204)
