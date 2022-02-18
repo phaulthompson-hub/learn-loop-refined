@@ -124,3 +124,126 @@ def member_activity(db: Session, workspace_id: int) -> dict[str, dict[int, objec
     return {"last_active": last_seen, "courses": dict(enrolled), "answers": dict(answers)}
 
 
+def member_row(membership: Membership, activity: dict, viewer_id: int) -> dict:
+    user = membership.user
+    return {
+        "user_id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "avatar_color": user.avatar_color,
+        "headline": user.headline,
+        "role": membership.role,
+        "is_active": user.is_active,
+        "is_you": user.id == viewer_id,
+        "joined_at": membership.joined_at,
+        "last_active_at": activity["last_active"].get(user.id),
+        "courses": activity["courses"].get(user.id, 0),
+        "answers_30d": activity["answers"].get(user.id, 0),
+    }
+
+
+def workspace_stats(db: Session, workspace: Workspace) -> dict:
+    now = clock.now()
+    week_ago = now - timedelta(days=7)
+    courses = workspace_course_ids(workspace.id)
+    member_ids = {m.user_id for m in workspace.memberships}
+    by_role = dict.fromkeys(ROLE_RANK, 0)
+    for membership in workspace.memberships:
+        by_role[membership.role] += 1
+    answered = set(
+        db.scalars(select(Attempt.user_id).where(Attempt.course_id.in_(courses), Attempt.created_at >= week_ago))
+    )
+    reviewed = set(
+        db.scalars(select(ReviewLog.user_id).where(ReviewLog.course_id.in_(courses), ReviewLog.reviewed_at >= week_ago))
+    )
+    statuses = db.execute(
+        select(Course.status, func.count()).where(Course.workspace_id == workspace.id).group_by(Course.status)
+    ).all()
+    return {
+        "members": len(member_ids),
+        "members_by_role": by_role,
+        "courses": sum(n for _, n in statuses),
+        "active_courses": dict(statuses).get("active", 0),
+        "active_learners_7d": len((answered | reviewed) & member_ids),
+        "answers_7d": count_rows(
+            db, select(Attempt.id).where(Attempt.course_id.in_(courses), Attempt.created_at >= week_ago)
+        ),
+        "reviews_7d": count_rows(
+            db, select(ReviewLog.id).where(ReviewLog.course_id.in_(courses), ReviewLog.reviewed_at >= week_ago)
+        ),
+        "pending_invitations": count_rows(
+            db,
+            select(Invitation.id).where(
+                Invitation.workspace_id == workspace.id, Invitation.status == "pending", Invitation.expires_at > now
+            ),
+        ),
+    }
+
+
+def workspace_payload(db: Session, access: Access) -> dict:
+    workspace = access.workspace
+    owner = db.get(User, workspace.owner_id)
+    return {
+        "id": workspace.id,
+        "name": workspace.name,
+        "slug": workspace.slug,
+        "description": workspace.description,
+        "color": workspace.color,
+        "created_at": workspace.created_at,
+        "owner": owner,
+        "your_role": access.role,
+        "stats": workspace_stats(db, workspace),
+    }
+
+
+def invitation_payload(invitation: Invitation, has_account: bool) -> dict:
+    return {
+        "id": invitation.id,
+        "email": invitation.email,
+        "role": invitation.role,
+        "status": invitation_state(invitation.status, invitation.expires_at, clock.now()),
+        "message": invitation.message,
+        "token": invitation.token,
+        "invited_by": invitation.invited_by,
+        "created_at": invitation.created_at,
+        "expires_at": invitation.expires_at,
+        "has_account": has_account,
+    }
+
+
+def registered_emails(db: Session, emails: Iterable[str]) -> set[str]:
+    wanted = list(set(emails))
+    if not wanted:
+        return set()
+    return set(db.scalars(select(User.email).where(User.email.in_(wanted))))
+
+
+def member_or_404(db: Session, workspace_id: int, user_id: int) -> Membership:
+    membership = membership_for(db, user_id, workspace_id)
+    if membership is None:
+        raise HTTPException(404, "Member not found")
+    return membership
+
+
+def invitation_or_404(db: Session, access: Access, invitation_id: int) -> Invitation:
+    invitation = db.get(Invitation, invitation_id)
+    if invitation is None or invitation.workspace_id != access.workspace.id:
+        raise HTTPException(404, "Invitation not found")
+    return invitation
+
+
+# ---------- Side effects ----------
+
+
+def sync_primary_owner(db: Session, workspace: Workspace) -> None:
+    """Keep `Workspace.owner_id` pointing at a current owner after roles change or owners leave."""
+    db.flush()
+    owners = db.scalars(
+        select(Membership)
+        .where(Membership.workspace_id == workspace.id, Membership.role == "owner")
+        .order_by(Membership.joined_at, Membership.id)
+    ).all()
+    if owners and workspace.owner_id not in {m.user_id for m in owners}:
+        workspace.owner_id = owners[0].user_id
+
+
