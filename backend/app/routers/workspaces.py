@@ -368,3 +368,132 @@ def delete_workspace(data: WorkspaceDelete, access: Access = Depends(workspace_a
     return Response(status_code=204)
 
 
+@router.post("/api/workspaces/{workspace_id}/leave", response_model=MeOut)
+def leave_workspace(access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    enforce(leave_denial(role=access.role, owner_count=active_owner_count(db, access.workspace.id)))
+    workspace, user = access.workspace, access.user
+    db.delete(access.membership)
+    forget_workspace(db, workspace.id, [user.id])
+    sync_primary_owner(db, workspace)
+    record(
+        db,
+        workspace_id=workspace.id,
+        actor_id=user.id,
+        verb="member.left",
+        object_type="user",
+        object_id=user.id,
+        summary=f"left {workspace.name}",
+        link="/members",
+    )
+    db.commit()
+    db.refresh(user)
+    return me_payload(db, user)
+
+
+# ---------- Members ----------
+
+
+@router.get("/api/workspaces/{workspace_id}/members", response_model=MemberPage)
+def list_members(
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+    q: str | None = Query(None, max_length=100),
+    role: str | None = Query(None, regex="^(learner|instructor|admin|owner)$"),
+    sort: str | None = Query(None, max_length=30),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    """Everyone in the workspace, visible to all members; `counts` are per role before filtering."""
+    field, descending = parse_sort(sort, MEMBER_SORTS, "name")
+    activity = member_activity(db, access.workspace.id)
+    rows = [member_row(m, activity, access.user.id) for m in access.workspace.memberships]
+    counts = {r: sum(1 for row in rows if row["role"] == r) for r in ROLE_RANK}
+    filtered = [
+        row
+        for row in rows
+        if (role is None or row["role"] == role) and matches(q, row["name"], row["email"], row["headline"])
+    ]
+    keys = {"name": lambda r: r["name"].lower(), "role": lambda r: ROLE_RANK[r["role"]]}
+    ordered = sort_items(filtered, keys.get(field, lambda r: r[field]), descending)
+    return {**paginate(ordered, page, page_size), "counts": counts}
+
+
+@router.patch("/api/workspaces/{workspace_id}/members/{user_id}", response_model=MemberOut)
+def change_role(
+    user_id: int, data: RoleUpdate, access: Access = Depends(workspace_access), db: Session = Depends(get_db)
+):
+    workspace = access.workspace
+    target = member_or_404(db, workspace.id, user_id)
+    is_self = target.user_id == access.user.id
+    enforce(
+        role_change_denial(
+            actor_role=access.role,
+            target_role=target.role,
+            new_role=data.role,
+            is_self=is_self,
+            owner_count=active_owner_count(db, workspace.id),
+        )
+    )
+    previous, target.role = target.role, data.role
+    sync_primary_owner(db, workspace)
+    name = target.user.name
+    record(
+        db,
+        workspace_id=workspace.id,
+        actor_id=access.user.id,
+        verb="member.role_changed",
+        object_type="user",
+        object_id=target.user_id,
+        summary=f"stepped down from owner to {data.role}"
+        if is_self
+        else f"changed {name}'s role from {previous} to {data.role}",
+        link="/members",
+    )
+    notify(
+        db,
+        user_id=target.user_id,
+        actor_id=access.user.id,
+        workspace_id=workspace.id,
+        kind="system",
+        title=f"You are now {article(data.role)} {data.role} in {workspace.name}",
+        body=f"{access.user.name} changed your role from {previous} to {data.role}.",
+        link="/members",
+    )
+    db.commit()
+    return member_row(target, member_activity(db, workspace.id), access.user.id)
+
+
+@router.delete("/api/workspaces/{workspace_id}/members/{user_id}", status_code=204)
+def remove_member(user_id: int, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    workspace = access.workspace
+    target = member_or_404(db, workspace.id, user_id)
+    enforce(removal_denial(actor_role=access.role, target_role=target.role, is_self=target.user_id == access.user.id))
+    name = target.user.name
+    db.delete(target)
+    forget_workspace(db, workspace.id, [user_id])
+    sync_primary_owner(db, workspace)
+    record(
+        db,
+        workspace_id=workspace.id,
+        actor_id=access.user.id,
+        verb="member.removed",
+        object_type="user",
+        object_id=user_id,
+        summary=f"removed {name} from the workspace",
+        link="/members",
+    )
+    notify(
+        db,
+        user_id=user_id,
+        actor_id=access.user.id,
+        kind="system",
+        title=f"You were removed from {workspace.name}",
+        body=f"{access.user.name} removed you from the workspace. Ask an admin if you think this was a mistake.",
+    )
+    db.commit()
+    return Response(status_code=204)
+
+
+# ---------- Invitations (admins) ----------
+
+
