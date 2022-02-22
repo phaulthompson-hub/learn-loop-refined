@@ -497,3 +497,126 @@ def remove_member(user_id: int, access: Access = Depends(workspace_access), db: 
 # ---------- Invitations (admins) ----------
 
 
+@router.get("/api/workspaces/{workspace_id}/invitations", response_model=InvitationPage)
+def list_invitations(
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+    status: str = Query("all", regex=f"^({'|'.join(INVITATION_FILTERS)})$"),
+    q: str | None = Query(None, max_length=100),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    access.require("admin")
+    invitations = db.scalars(
+        select(Invitation)
+        .where(Invitation.workspace_id == access.workspace.id)
+        .order_by(Invitation.created_at.desc(), Invitation.id.desc())
+    ).all()
+    accounts = registered_emails(db, (i.email for i in invitations))
+    rows = [invitation_payload(i, i.email in accounts) for i in invitations]
+    counts = {state: sum(1 for r in rows if r["status"] == state) for state in INVITATION_FILTERS[:-1]}
+    counts["all"] = len(rows)
+    filtered = [r for r in rows if (status == "all" or r["status"] == status) and matches(q, r["email"])]
+    return {**paginate(filtered, page, page_size), "counts": counts}
+
+
+@router.post("/api/workspaces/{workspace_id}/invitations", response_model=InviteSummary, status_code=201)
+def invite(data: InvitationCreate, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    """Invite several people at once. Each address gets its own outcome, so one typo never blocks the rest."""
+    enforce(invite_role_denial(actor_role=access.role, role=data.role))
+    workspace, now = access.workspace, clock.now()
+    parsed = parse_email_list(data.emails)
+    if not parsed.valid and not parsed.invalid:
+        raise HTTPException(422, "Add at least one email address")
+    if len(parsed.valid) > MAX_INVITES_PER_REQUEST:
+        raise HTTPException(422, f"Invite at most {MAX_INVITES_PER_REQUEST} people at a time")
+    member_emails = {m.user.email for m in workspace.memberships}
+    open_invitations = {
+        i.email: i
+        for i in db.scalars(
+            select(Invitation).where(Invitation.workspace_id == workspace.id, Invitation.status == "pending")
+        )
+    }
+    accounts = registered_emails(db, parsed.valid)
+    # One entry per valid address, in the order typed: either a new invitation or the reason it was skipped.
+    outcomes: list[Invitation | str] = []
+    for email in parsed.valid:
+        existing = open_invitations.get(email)
+        if email in member_emails:
+            outcomes.append("Already a member")
+        elif existing is not None and existing.expires_at > now:
+            outcomes.append("Already has a pending invitation")
+        else:
+            # An expired invitation is renewed in place, so the list keeps one row per person.
+            invitation = existing or Invitation(workspace_id=workspace.id, email=email)
+            invitation.status = "pending"
+            invitation.role = data.role
+            invitation.message = data.message
+            invitation.token = secrets.token_urlsafe(24)
+            invitation.invited_by_id = access.user.id
+            invitation.created_at = now
+            invitation.expires_at = now + INVITATION_TTL
+            db.add(invitation)
+            outcomes.append(invitation)
+    db.flush()
+    results: list[dict] = []
+    invited = [o for o in outcomes if isinstance(o, Invitation)]
+    for email, outcome in zip(parsed.valid, outcomes, strict=True):
+        if isinstance(outcome, str):
+            results.append({"email": email, "outcome": "skipped", "reason": outcome})
+            continue
+        invite_notification(db, outcome, workspace, access.user)
+        payload = invitation_payload(outcome, email in accounts)
+        results.append({"email": email, "outcome": "invited", "invitation": payload})
+    results += [{"email": e, "outcome": "skipped", "reason": "Listed more than once"} for e in parsed.duplicates]
+    results += [{"email": e, "outcome": "invalid", "reason": "Not a valid email address"} for e in parsed.invalid]
+    if invited:
+        people = "1 person" if len(invited) == 1 else f"{len(invited)} people"
+        record(
+            db,
+            workspace_id=workspace.id,
+            actor_id=access.user.id,
+            verb="member.invited",
+            object_type="workspace",
+            object_id=workspace.id,
+            summary=f"invited {people} to join as {data.role}{'' if len(invited) == 1 else 's'}",
+            link="/members",
+        )
+    db.commit()
+    return {"invited": len(invited), "skipped": len(results) - len(invited), "results": results}
+
+
+@router.post("/api/workspaces/{workspace_id}/invitations/{invitation_id}/revoke", response_model=InvitationOut)
+def revoke_invitation(invitation_id: int, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    access.require("admin")
+    invitation = invitation_or_404(db, access, invitation_id)
+    if invitation.status != "pending":
+        raise HTTPException(409, f"This invitation was already {invitation.status}")
+    invitation.status = "revoked"
+    db.commit()
+    return invitation_payload(invitation, find_user_by_email(db, invitation.email) is not None)
+
+
+@router.post("/api/workspaces/{workspace_id}/invitations/{invitation_id}/resend", response_model=InvitationOut)
+def resend_invitation(invitation_id: int, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    """Give a pending (or expired) invitation a fresh 14-day window; the link stays the same."""
+    access.require("admin")
+    invitation = invitation_or_404(db, access, invitation_id)
+    if invitation.status != "pending":
+        raise HTTPException(409, f"Only pending invitations can be resent; this one was {invitation.status}")
+    invitation.expires_at = clock.now() + INVITATION_TTL
+    invite_notification(db, invitation, access.workspace, access.user)
+    db.commit()
+    return invitation_payload(invitation, find_user_by_email(db, invitation.email) is not None)
+
+
+# ---------- Invitations (invitee) ----------
+
+
+def invitation_by_token(db: Session, token: str) -> Invitation:
+    invitation = db.scalars(select(Invitation).where(Invitation.token == token)).first()
+    if invitation is None:
+        raise HTTPException(404, "This invitation link is not valid")
+    return invitation
+
+
