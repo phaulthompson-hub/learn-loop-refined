@@ -120,3 +120,149 @@ def require_editor(course: Course, access: Access) -> None:
         raise HTTPException(403, "Only the course owner or an instructor can change this course")
 
 
+def course_source(course: Course, source_id: int) -> Source:
+    source = next((s for s in course.sources if s.id == source_id), None)
+    if source is None:
+        raise HTTPException(404, "Source not found")
+    return source
+
+
+def course_concept(course: Course, concept_id: int) -> Concept:
+    concept = next((c for c in course.concepts if c.id == concept_id), None)
+    if concept is None:
+        raise HTTPException(404, "Concept not found")
+    return concept
+
+
+def read_upload(name: str, raw: bytes) -> str:
+    extension = PurePath(name).suffix.lower()
+    if extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(415, "Upload a PDF, TXT, or Markdown file")
+    try:
+        if extension == ".pdf":
+            from pypdf import PdfReader
+
+            return "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(raw)).pages)
+        return raw.decode("utf-8")
+    except Exception as exc:
+        raise HTTPException(400, "Could not read this file") from exc
+
+
+# ---------- Catalogue ----------
+
+
+@router.get("/api/workspaces/{workspace_id}/courses", response_model=CoursePage)
+def list_courses(
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+    q: str | None = Query(None, max_length=100),
+    status: str | None = Query(None, regex="^(draft|active|archived|all)$"),
+    subject: str | None = Query(None, max_length=60),
+    difficulty: str | None = Query(None, regex="^(intro|intermediate|advanced)$"),
+    tag: str | None = Query(None, max_length=30),
+    enrolled: bool | None = None,
+    sort: str | None = Query(None, max_length=30),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(12, ge=1, le=100),
+):
+    field, descending = parse_sort(sort, SORTS, "-updated_at")
+    courses = db.scalars(select(Course).where(Course.workspace_id == access.workspace.id).order_by(Course.id)).all()
+    visible = [c for c in courses if c.status != "draft" or access.can("instructor") or c.owner_id == access.user.id]
+    attempts = user_attempts(db, access.user.id, [c.id for c in visible])
+    summaries = [course_summary(db, c, access.user.id, attempts) for c in visible]
+    facets = {
+        "subjects": sorted({s["subject"] for s in summaries}, key=str.lower),
+        "tags": sorted({t for s in summaries for t in s["tags"]}),
+        "statuses": {st: sum(1 for s in summaries if s["status"] == st) for st in ("draft", "active", "archived")},
+        "difficulties": {d: sum(1 for s in summaries if s["difficulty"] == d) for d in DIFFICULTY_RANK},
+    }
+    wanted_status = status or "active"
+    filtered = [
+        s
+        for s in summaries
+        if (wanted_status == "all" or s["status"] == wanted_status)
+        and (subject is None or s["subject"].lower() == subject.lower())
+        and (difficulty is None or s["difficulty"] == difficulty)
+        and (tag is None or tag.lower() in s["tags"])
+        and (enrolled is None or s["enrolled"] == enrolled)
+        and matches(q, s["title"], s["description"], s["subject"], " ".join(s["tags"]))
+    ]
+    ordered = sort_items(filtered, sort_key(field), descending)
+    # Pinned courses always lead the list, keeping the chosen order inside each group.
+    ordered = [s for s in ordered if s["pinned"]] + [s for s in ordered if not s["pinned"]]
+    return {**paginate(ordered, page, page_size), "facets": facets}
+
+
+@router.post("/api/workspaces/{workspace_id}/courses", response_model=CourseOut, status_code=201)
+def add_course(data: CourseCreate, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    access.require("instructor")
+    course = create_course(
+        db,
+        workspace_id=access.workspace.id,
+        owner=access.user,
+        title=data.title,
+        text=data.text,
+        source_name="pasted-notes.txt",
+        description=data.description,
+        subject=data.subject,
+        difficulty=data.difficulty,
+        tags=data.tags,
+        status=data.status,
+        color=data.color,
+    )
+    return course_detail(db, course, access.user.id)
+
+
+@router.post("/api/workspaces/{workspace_id}/courses/upload", response_model=CourseOut, status_code=201)
+async def upload_course(
+    title: str = Form(...),
+    file: UploadFile = File(...),
+    subject: str = Form("General"),
+    difficulty: str = Form("intro"),
+    description: str = Form(""),
+    tags: str = Form(""),
+    status: str = Form("active"),
+    color: str | None = Form(None),
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+):
+    access.require("instructor")
+    try:
+        meta = UploadMeta(
+            title=title,
+            subject=subject,
+            difficulty=difficulty,
+            description=description,
+            tags=tags,
+            status=status,
+            color=color or None,
+        )
+    except ValidationError as exc:
+        raise HTTPException(422, readable(exc)) from exc
+    raw = await file.read()
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "File must be under 8 MB")
+    name = PurePath(file.filename or "upload.txt").name
+    text = read_upload(name, raw)
+    if len(text.strip()) < MIN_TEXT_CHARS:
+        raise HTTPException(400, f"The file needs at least {MIN_TEXT_CHARS} characters of readable text")
+    course = create_course(
+        db,
+        workspace_id=access.workspace.id,
+        owner=access.user,
+        title=meta.title,
+        text=text,
+        source_name=name,
+        description=meta.description,
+        subject=meta.subject,
+        difficulty=meta.difficulty,
+        tags=meta.tags,
+        status=meta.status,
+        color=meta.color,
+    )
+    return course_detail(db, course, access.user.id)
+
+
+# ---------- One course ----------
+
+
