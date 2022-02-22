@@ -620,3 +620,58 @@ def invitation_by_token(db: Session, token: str) -> Invitation:
     return invitation
 
 
+@router.get("/api/invitations/{token}", response_model=InvitationPreview)
+def preview_invitation(token: str, viewer: User | None = Depends(optional_user), db: Session = Depends(get_db)):
+    """What the invite landing page shows. Works signed out; a signed-in viewer also learns whether it is theirs."""
+    invitation = invitation_by_token(db, token)
+    workspace = db.get(Workspace, invitation.workspace_id)
+    status = invitation_state(invitation.status, invitation.expires_at, clock.now())
+    preview = {
+        "email": invitation.email,
+        "role": invitation.role,
+        "status": status,
+        "expired": status == "expired",
+        "message": invitation.message,
+        "expires_at": invitation.expires_at,
+        "workspace": {
+            "name": workspace.name,
+            "color": workspace.color,
+            "description": workspace.description,
+            "members": len(workspace.memberships),
+        },
+        "inviter": invitation.invited_by,
+        "has_account": find_user_by_email(db, invitation.email) is not None,
+    }
+    if viewer is not None:
+        preview["viewer_email_matches"] = viewer.email == invitation.email
+        preview["viewer_is_member"] = membership_for(db, viewer.id, workspace.id) is not None
+    return preview
+
+
+@router.post("/api/invitations/{token}/accept", response_model=InvitationAccepted)
+def accept(token: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    invitation = invitation_by_token(db, token)
+    membership = accept_invitation(db, user, token)
+    record(
+        db,
+        workspace_id=membership.workspace_id,
+        actor_id=user.id,
+        verb="member.joined",
+        object_type="user",
+        object_id=user.id,
+        summary=f"joined as {article(membership.role)} {membership.role}",
+        link="/members",
+    )
+    notify(
+        db,
+        user_id=invitation.invited_by_id,
+        actor_id=user.id,
+        workspace_id=membership.workspace_id,
+        kind="invite",
+        title=f"{user.name} accepted your invitation",
+        body=f"They joined {membership.workspace.name} as {article(membership.role)} {membership.role}.",
+        link="/members",
+    )
+    db.commit()
+    db.refresh(user)
+    return {**me_payload(db, user), "workspace_id": membership.workspace_id}
