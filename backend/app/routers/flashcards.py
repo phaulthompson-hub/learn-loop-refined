@@ -247,3 +247,124 @@ def review_counts(db: Session, user_id: int, card_ids: Sequence[int]) -> dict[in
     )
 
 
+def card_payload(card: Flashcard, state: CardState | None, names: dict[int, str], reviews: int) -> dict:
+    return {
+        "id": card.id,
+        "deck_id": card.deck_id,
+        "concept_id": card.concept_id,
+        "concept_name": names.get(card.concept_id) if card.concept_id else None,
+        "front": card.front,
+        "back": card.back,
+        "hint": card.hint,
+        "position": card.position,
+        "created_at": card.created_at,
+        "status": card_status(schedule_of(state)),
+        "due_at": state.due_at if state else None,
+        "interval_days": state.interval_days if state else 0,
+        "ease": state.ease if state else None,
+        "repetitions": state.repetitions if state else 0,
+        "lapses": state.lapses if state else 0,
+        "reviews": reviews,
+        "last_reviewed_at": state.last_reviewed_at if state else None,
+    }
+
+
+def cards_payload(db: Session, user_id: int, cards: Sequence[Flashcard]) -> list[dict]:
+    ids = [card.id for card in cards]
+    states = state_map(db, user_id, ids)
+    names = concept_names(db, (card.concept_id for card in cards))
+    counts = review_counts(db, user_id, ids)
+    return [card_payload(card, states.get(card.id), names, counts.get(card.id, 0)) for card in cards]
+
+
+# ---------- Writes ----------
+
+
+def check_deck_name(db: Session, course_id: int, name: str, exclude_id: int | None = None) -> None:
+    for deck in db.scalars(select(Deck).where(Deck.course_id == course_id)):
+        if deck.id != exclude_id and deck.name.casefold() == name.casefold():
+            raise HTTPException(409, f"This course already has a deck called {deck.name}")
+
+
+def check_concept(db: Session, concept_id: int | None, course: Course) -> None:
+    if concept_id is None:
+        return
+    concept = db.get(Concept, concept_id)
+    if concept is None or concept.course_id != course.id:
+        raise HTTPException(422, "The linked concept must belong to this deck's course")
+
+
+def check_front(deck: Deck, front: str, exclude_id: int | None = None) -> None:
+    key = normalise_front(front)
+    if any(card.id != exclude_id and normalise_front(card.front) == key for card in deck.cards):
+        raise HTTPException(409, "This deck already has a card with the same front")
+
+
+def add_card(deck: Deck, front: str, back: str, hint: str = "", concept_id: int | None = None) -> Flashcard:
+    position = max((card.position for card in deck.cards), default=-1) + 1
+    card = Flashcard(
+        front=front, back=back, hint=hint, concept_id=concept_id, position=position, created_at=clock.now()
+    )
+    deck.cards.append(card)
+    return card
+
+
+def purge_history(db: Session, card_ids: Sequence[int]) -> None:
+    """Remove every learner's schedule and review log for cards that are being deleted.
+
+    SQLite does not enforce the ON DELETE CASCADE foreign keys here, and a reused card id must
+    never inherit someone else's history.
+    """
+    if card_ids:
+        db.execute(delete(CardState).where(CardState.card_id.in_(card_ids)))
+        db.execute(delete(ReviewLog).where(ReviewLog.card_id.in_(card_ids)))
+
+
+# ---------- Decks ----------
+
+
+@router.get("/api/workspaces/{workspace_id}/decks", response_model=DeckPage)
+def list_decks(
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+    course_id: int | None = None,
+    q: str | None = Query(None, max_length=100),
+    sort: str | None = Query(None, max_length=30),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    field, descending = parse_sort(sort, DECK_SORTS, "course")
+    pairs = workspace_decks(db, access)
+    summaries = deck_summaries(db, access, [p for p in pairs if course_id is None or p[1].id == course_id])
+    deck_counts = Counter(course.id for _, course in pairs)
+    courses = db.scalars(
+        select(Course)
+        .where(Course.workspace_id == access.workspace.id, Course.status != "archived")
+        .order_by(Course.title)
+    )
+    course_facets = [
+        {
+            "id": c.id,
+            "title": c.title,
+            "color": c.color,
+            "decks": deck_counts[c.id],
+            "can_edit": course_editable(c, access),
+        }
+        for c in courses
+        if course_visible(c, access)
+    ]
+    totals = {
+        "due": sum(s["due"] for s in summaries),
+        "new": sum(s["new"] for s in summaries),
+        "total": sum(s["card_count"] for s in summaries),
+    }
+    filtered = [s for s in summaries if matches(q, s["name"], s["description"], s["course_title"])]
+    if field == "course":
+        ordered = sort_items(filtered, lambda s: (s["course_title"].lower(), s["name"].lower()), descending)
+    elif field == "name":
+        ordered = sort_items(filtered, lambda s: s["name"].lower(), descending)
+    else:
+        ordered = sort_items(filtered, lambda s: s[field], descending)
+    return {**paginate(ordered, page, page_size), "courses": course_facets, "totals": totals}
+
+
