@@ -368,3 +368,133 @@ def list_decks(
     return {**paginate(ordered, page, page_size), "courses": course_facets, "totals": totals}
 
 
+@router.post("/api/workspaces/{workspace_id}/decks", response_model=DeckDetail, status_code=201)
+def create_deck(data: DeckCreate, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    course = db.get(Course, data.course_id)
+    if course is None or course.workspace_id != access.workspace.id or not course_visible(course, access):
+        raise HTTPException(404, "Course not found")
+    if not course_editable(course, access):
+        raise HTTPException(403, "Only instructors and the course owner can add decks to this course")
+    if course.status == "archived":
+        raise HTTPException(400, "Archived courses cannot get new decks")
+    check_deck_name(db, course.id, data.name)
+    deck = Deck(
+        course_id=course.id,
+        name=data.name,
+        description=data.description,
+        created_by_id=access.user.id,
+        created_at=clock.now(),
+    )
+    db.add(deck)
+    db.flush()
+    record(
+        db,
+        workspace_id=course.workspace_id,
+        actor_id=access.user.id,
+        verb="deck.created",
+        object_type="deck",
+        object_id=deck.id,
+        summary=f"created the deck {deck.name} in {course.title}",
+        link=f"/decks/{deck.id}",
+    )
+    db.commit()
+    return deck_detail(db, DeckContext(deck, course, access))
+
+
+@router.get("/api/decks/{deck_id}", response_model=DeckDetail)
+def get_deck(deck_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return deck_detail(db, deck_context(db, user, deck_id))
+
+
+@router.patch("/api/decks/{deck_id}", response_model=DeckDetail)
+def update_deck(deck_id: int, data: DeckUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    ctx = deck_context(db, user, deck_id)
+    ctx.require_edit()
+    if data.name is not None:
+        check_deck_name(db, ctx.course.id, data.name, exclude_id=ctx.deck.id)
+        ctx.deck.name = data.name
+    if data.description is not None:
+        ctx.deck.description = data.description
+    db.commit()
+    return deck_detail(db, ctx)
+
+
+@router.delete("/api/decks/{deck_id}", status_code=204)
+def delete_deck(deck_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    ctx = deck_context(db, user, deck_id)
+    ctx.require_edit()
+    record(
+        db,
+        workspace_id=ctx.course.workspace_id,
+        actor_id=user.id,
+        verb="deck.deleted",
+        object_type="deck",
+        object_id=None,
+        summary=f"deleted the deck {ctx.deck.name} from {ctx.course.title}",
+        link=f"/courses/{ctx.course.id}",
+    )
+    purge_history(db, [card.id for card in ctx.deck.cards])
+    db.delete(ctx.deck)
+    db.commit()
+    return Response(status_code=204)
+
+
+# ---------- Cards ----------
+
+
+@router.get("/api/decks/{deck_id}/cards", response_model=CardPage)
+def list_cards(
+    deck_id: int,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+    q: str | None = Query(None, max_length=100),
+    status: CardStatus | None = None,
+    sort: str | None = Query(None, max_length=30),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=100),
+):
+    field, descending = parse_sort(sort, CARD_SORTS, "position")
+    ctx = deck_context(db, user, deck_id)
+    cards = cards_payload(db, user.id, ctx.deck.cards)
+    counts = Counter(card["status"] for card in cards)
+    filtered = [
+        card
+        for card in cards
+        if (status is None or card["status"] == status)
+        and matches(q, card["front"], card["back"], card["hint"], card["concept_name"])
+    ]
+    key = (lambda c: c["front"].lower()) if field == "front" else (lambda c: c[field])
+    return {
+        **paginate(sort_items(filtered, key, descending), page, page_size),
+        "counts": {name: counts[name] for name in CARD_STATUSES},
+    }
+
+
+@router.post("/api/decks/{deck_id}/cards", response_model=CardOut, status_code=201)
+def create_card(deck_id: int, data: CardCreate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    ctx = deck_context(db, user, deck_id)
+    ctx.require_edit()
+    check_concept(db, data.concept_id, ctx.course)
+    check_front(ctx.deck, data.front)
+    card = add_card(ctx.deck, data.front, data.back, data.hint, data.concept_id)
+    db.commit()
+    return cards_payload(db, user.id, [card])[0]
+
+
+@router.patch("/api/cards/{card_id}", response_model=CardOut)
+def update_card(card_id: int, data: CardUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    card, ctx = card_context(db, user, card_id)
+    ctx.require_edit()
+    changes = data.dict(exclude_unset=True)
+    if "concept_id" in changes:
+        check_concept(db, changes["concept_id"], ctx.course)
+        card.concept_id = changes["concept_id"]
+    if changes.get("front") is not None:
+        check_front(ctx.deck, changes["front"], exclude_id=card.id)
+    for key in ("front", "back", "hint"):
+        if changes.get(key) is not None:
+            setattr(card, key, changes[key])
+    db.commit()
+    return cards_payload(db, user.id, [card])[0]
+
+
