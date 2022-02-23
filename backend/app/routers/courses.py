@@ -266,3 +266,129 @@ async def upload_course(
 # ---------- One course ----------
 
 
+@router.get("/api/courses/{course_id}", response_model=CourseOut)
+def get_course(course_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, _ = course_access(db, user, course_id)
+    return course_detail(db, course, user.id)
+
+
+@router.patch("/api/courses/{course_id}", response_model=CourseOut)
+def update_course(
+    course_id: int, data: CourseUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    course, access = course_access(db, user, course_id)
+    require_editor(course, access)
+    changes = data.dict(exclude_unset=True)
+    if "tags" in changes:
+        changes["tags"] = ",".join(changes["tags"])
+    previous_status = course.status
+    for key, value in changes.items():
+        setattr(course, key, value)
+    course.updated_at = clock.now()
+    if course.status != previous_status:
+        verb = "restored" if previous_status == "archived" and course.status == "active" else course.status
+        record(
+            db,
+            workspace_id=course.workspace_id,
+            actor_id=user.id,
+            verb=f"course.{verb}",
+            object_type="course",
+            object_id=course.id,
+            summary=f"marked {course.title} as {course.status}",
+            link=f"/courses/{course.id}",
+        )
+    db.commit()
+    return course_detail(db, course, user.id)
+
+
+@router.delete("/api/courses/{course_id}", status_code=204)
+def remove_course(course_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, access = course_access(db, user, course_id)
+    if course.owner_id != user.id:
+        access.require("admin")
+    delete_course(db, course, user)
+    return Response(status_code=204)
+
+
+@router.post("/api/courses/{course_id}/duplicate", response_model=CourseOut, status_code=201)
+def duplicate(
+    course_id: int,
+    data: CourseDuplicate | None = None,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    course, access = course_access(db, user, course_id)
+    access.require("instructor")
+    copy = duplicate_course(db, course, user, data.title if data else None)
+    return course_detail(db, copy, user.id)
+
+
+@router.get("/api/courses/{course_id}/summary", response_model=CourseSummary)
+def get_course_summary(course_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, _ = course_access(db, user, course_id)
+    return course_summary(db, course, user.id)
+
+
+@router.put("/api/courses/{course_id}/enrollment", response_model=CourseSummary)
+def enroll(course_id: int, data: EnrollmentUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, _ = course_access(db, user, course_id)
+    enrollment = ensure_enrollment(db, user.id, course.id)
+    enrollment.pinned = data.pinned
+    db.commit()
+    db.refresh(course)
+    return course_summary(db, course, user.id)
+
+
+@router.delete("/api/courses/{course_id}/enrollment", status_code=204)
+def unenroll(course_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, _ = course_access(db, user, course_id)
+    for enrollment in [e for e in course.enrollments if e.user_id == user.id]:
+        db.delete(enrollment)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/api/courses/{course_id}/opened", status_code=204)
+def mark_opened(course_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, _ = course_access(db, user, course_id)
+    ensure_enrollment(db, user.id, course.id).last_opened_at = clock.now()
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.get("/api/courses/{course_id}/learners", response_model=CourseLearners)
+def get_learners(course_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, access = course_access(db, user, course_id)
+    if not can_edit(course, access):
+        raise HTTPException(403, "Only the course owner or an instructor can see learners' progress")
+    return course_learners(db, course)
+
+
+@router.get("/api/courses/{course_id}/activity", response_model=CourseActivity)
+def get_activity(
+    course_id: int,
+    days: int = Query(14, ge=7, le=60),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    course, _ = course_access(db, user, course_id)
+    return course_activity(db, course, user.id, days)
+
+
+@router.post("/api/courses/{course_id}/reset-progress", response_model=ProgressReset)
+def reset_my_progress(course_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, _ = course_access(db, user, course_id)
+    attempts, concepts = reset_progress(db, course, user)
+    return {"attempts_cleared": attempts, "concepts_cleared": concepts, "course": course_detail(db, course, user.id)}
+
+
+# ---------- Sources and concepts ----------
+
+
+@router.get("/api/courses/{course_id}/sources/{source_id}", response_model=SourceDetail)
+def get_source(course_id: int, source_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, _ = course_access(db, user, course_id)
+    source = course_source(course, source_id)
+    return {**source_payload(source), "course_id": course.id, "content": source.content}
+
+
