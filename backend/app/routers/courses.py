@@ -392,3 +392,103 @@ def get_source(course_id: int, source_id: int, user: User = Depends(current_user
     return {**source_payload(source), "course_id": course.id, "content": source.content}
 
 
+@router.post("/api/courses/{course_id}/sources", response_model=SourceOut, status_code=201)
+def create_source(
+    course_id: int, data: SourceCreate, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    course, access = course_access(db, user, course_id)
+    require_editor(course, access)
+    return source_payload(add_source(db, course, data.name, data.text))
+
+
+@router.delete("/api/courses/{course_id}/sources/{source_id}", status_code=204)
+def delete_source(course_id: int, source_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, access = course_access(db, user, course_id)
+    require_editor(course, access)
+    try:
+        remove_source(db, course, course_source(course, source_id))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return Response(status_code=204)
+
+
+@router.patch("/api/courses/{course_id}/concepts/{concept_id}", response_model=ConceptOut)
+def update_concept(
+    course_id: int,
+    concept_id: int,
+    data: ConceptUpdate,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    course, access = course_access(db, user, course_id)
+    require_editor(course, access)
+    concept = course_concept(course, concept_id)
+    try:
+        rename_concept(db, course, concept, data.name, data.summary)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    views = learner_concepts(db, course, user.id)
+    view = next(v for v in views if v.id == concept.id)
+    return concept_payload(view, unlocked_ids(views))
+
+
+@router.put("/api/courses/{course_id}/concepts/order", response_model=list[ConceptOut])
+def order_concepts(
+    course_id: int, data: ConceptOrder, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    course, access = course_access(db, user, course_id)
+    require_editor(course, access)
+    try:
+        reorder_concepts(db, course, data.concept_ids)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    views = learner_concepts(db, course, user.id)
+    unlocked = unlocked_ids(views)
+    return [concept_payload(v, unlocked) for v in views]
+
+
+# ---------- Practice ----------
+
+
+@router.get("/api/courses/{course_id}/quiz", response_model=list[Question])
+def get_quiz(
+    course_id: int,
+    count: int = Query(4, ge=1, le=10),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    course, _ = course_access(db, user, course_id)
+    questions, _ = quiz_for(learner_course(db, course, user.id), count)
+    return questions
+
+
+@router.post("/api/courses/{course_id}/answers", response_model=AnswerOut)
+def answer(course_id: int, data: AnswerIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, _ = course_access(db, user, course_id)
+    try:
+        return grade_answer(db, course, user, data.question_id, data.concept_id, data.selected)
+    except InvalidQuestion as exc:
+        raise HTTPException(400, "Invalid question") from exc
+
+
+@router.get("/api/courses/{course_id}/attempts", response_model=list[AttemptOut])
+def get_attempts(
+    course_id: int,
+    limit: int = Query(10, ge=1, le=100),
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+):
+    course, _ = course_access(db, user, course_id)
+    return recent_attempts(db, course, user.id, limit)
+
+
+@router.get("/api/courses/{course_id}/recommendation", response_model=RecommendationOut)
+def get_recommendation(course_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, _ = course_access(db, user, course_id)
+    return recommendation_payload(learner_concepts(db, course, user.id))
+
+
+@router.post("/api/courses/{course_id}/tutor", response_model=TutorOut)
+async def ask_tutor(course_id: int, data: TutorIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    course, _ = course_access(db, user, course_id)
+    return await tutor(learner_course(db, course, user.id), data.message)
