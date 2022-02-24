@@ -634,3 +634,104 @@ def review_card(card_id: int, data: ReviewIn, user: User = Depends(current_user)
     }
 
 
+@router.post("/api/workspaces/{workspace_id}/review/sessions", response_model=SessionOut, status_code=201)
+def finish_session(data: SessionIn, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    """Log a finished review session as study time and announce it in the workspace feed.
+
+    The reported count is checked against the reviews actually recorded today in this workspace.
+    """
+    deck: Deck | None = None
+    if data.deck_id is not None:
+        _, decks = review_scope(db, access, data.deck_id, None)
+        deck = decks[data.deck_id][0]
+    reviewed_courses = db.scalars(
+        select(ReviewLog.course_id)
+        .join(Course, ReviewLog.course_id == Course.id)
+        .where(ReviewLog.user_id == access.user.id, Course.workspace_id == access.workspace.id)
+        .where(ReviewLog.reviewed_at >= clock.start_of_day(clock.now()))
+    ).all()
+    if data.reviewed > len(reviewed_courses):
+        raise HTTPException(422, f"Only {plural(len(reviewed_courses), 'review')} were recorded today")
+    course_id = deck.course_id if deck else Counter(reviewed_courses).most_common(1)[0][0]
+    minutes = int(min(MAX_SESSION_MINUTES, max(1, round_half_up(data.duration_seconds / 60))))
+    accuracy = round_half_up(100 * (data.reviewed - data.again) / data.reviewed, 1)
+    where = f" in {deck.name}" if deck else ""
+    log = StudyLog(
+        user_id=access.user.id,
+        course_id=course_id,
+        minutes=minutes,
+        activity="flashcards",
+        note=f"Reviewed {plural(data.reviewed, 'flashcard')}{where}",
+        logged_at=clock.now(),
+    )
+    db.add(log)
+    record(
+        db,
+        workspace_id=access.workspace.id,
+        actor_id=access.user.id,
+        verb="flashcards.reviewed",
+        object_type="deck" if deck else "workspace",
+        object_id=deck.id if deck else None,
+        summary=f"reviewed {plural(data.reviewed, 'flashcard')}{where}",
+        link=f"/decks/{deck.id}" if deck else "/review",
+        detail=f"{accuracy:g}% recalled in {minutes} min",
+    )
+    db.commit()
+    return {
+        "study_log_id": log.id,
+        "course_id": course_id,
+        "minutes": minutes,
+        "reviewed": data.reviewed,
+        "accuracy": accuracy,
+    }
+
+
+@router.get("/api/workspaces/{workspace_id}/review/stats", response_model=ReviewStats)
+def review_stats(
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+    deck_id: int | None = None,
+    course_id: int | None = None,
+):
+    """Today's workload, recent recall and the two-week outlook for a workspace, course or deck."""
+    cards, _ = review_scope(db, access, deck_id, course_id)
+    user_id = access.user.id
+    card_ids = [card.id for card in cards]
+    states = state_map(db, user_id, card_ids)
+    queue = build_queue(db, user_id, cards)
+    now = clock.now()
+    today = now.date()
+    logs = []
+    if card_ids:
+        logs = db.execute(
+            select(ReviewLog.grade, ReviewLog.reviewed_at).where(
+                ReviewLog.user_id == user_id,
+                ReviewLog.card_id.in_(card_ids),
+                ReviewLog.reviewed_at >= now - RETENTION_WINDOW,
+            )
+        ).all()
+    by_day: dict = defaultdict(list)
+    for grade, reviewed_at in logs:
+        by_day[reviewed_at.date()].append(grade)
+    history = []
+    for offset in range(HISTORY_DAYS - 1, -1, -1):
+        day = today - timedelta(days=offset)
+        history.append({"date": day, "reviews": len(by_day[day]), "again": by_day[day].count(AGAIN)})
+    statuses = Counter(card_status(schedule_of(state)) for state in states.values())
+    return {
+        "total_cards": len(cards),
+        "due_today": queue.due_total,
+        "new_available": queue.new_total,
+        "new_allowance": queue.new_allowance,
+        "reviewed_today": len(by_day[today]),
+        "again_today": by_day[today].count(AGAIN),
+        "retention_30d": retention_rate(grade for grade, _ in logs),
+        "reviews_30d": len(logs),
+        "learning": statuses["learning"],
+        "young": statuses["young"],
+        "mature": statuses["mature"],
+        "streak": streak_summary(db, user_id)["current"],
+        "next_due_at": queue.next_due_at,
+        "forecast": [{"date": day, "due": n} for day, n in forecast((s.due_at for s in states.values()), today)],
+        "history": history,
+    }
