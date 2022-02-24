@@ -498,3 +498,139 @@ def update_card(card_id: int, data: CardUpdate, user: User = Depends(current_use
     return cards_payload(db, user.id, [card])[0]
 
 
+@router.delete("/api/cards/{card_id}", status_code=204)
+def delete_card(card_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    card, ctx = card_context(db, user, card_id)
+    ctx.require_edit()
+    purge_history(db, [card.id])
+    ctx.deck.cards.remove(card)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/api/decks/{deck_id}/cards/import", response_model=ImportOut)
+def import_cards(deck_id: int, data: ImportIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Create cards from `front :: back [:: hint]` lines; `dry_run` only reports what would happen."""
+    ctx = deck_context(db, user, deck_id)
+    ctx.require_edit()
+    lines = [line for line in data.text.splitlines() if line.strip() and not line.strip().startswith("#")]
+    if not lines:
+        raise HTTPException(422, "Paste at least one line in the form: front :: back")
+    if len(lines) > IMPORT_MAX_LINES:
+        raise HTTPException(422, f"Import at most {IMPORT_MAX_LINES} cards at a time")
+    accepted, rejected = parse_import(data.text, (card.front for card in ctx.deck.cards))
+    created = 0
+    if accepted and not data.dry_run:
+        for line in accepted:
+            add_card(ctx.deck, line["front"], line["back"], line["hint"])
+        created = len(accepted)
+        record(
+            db,
+            workspace_id=ctx.course.workspace_id,
+            actor_id=user.id,
+            verb="deck.imported",
+            object_type="deck",
+            object_id=ctx.deck.id,
+            summary=f"imported {plural(created, 'card')} into {ctx.deck.name}",
+            link=f"/decks/{ctx.deck.id}",
+        )
+        db.commit()
+    return {"accepted": accepted, "rejected": rejected, "created": created}
+
+
+@router.post("/api/decks/{deck_id}/cards/generate", response_model=GenerateOut)
+def generate_cards(deck_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """One card per course concept: the question names the concept, the answer is its summary.
+
+    Concepts that already have a linked card in this deck (or whose question already exists) are skipped.
+    """
+    ctx = deck_context(db, user, deck_id)
+    ctx.require_edit()
+    concepts = db.scalars(select(Concept).where(Concept.course_id == ctx.course.id).order_by(Concept.order_index))
+    linked = {card.concept_id for card in ctx.deck.cards if card.concept_id}
+    fronts = {normalise_front(card.front) for card in ctx.deck.cards}
+    created: list[Flashcard] = []
+    skipped = 0
+    for concept in concepts:
+        front = f"What should you remember about {concept.name}?"
+        if concept.id in linked or normalise_front(front) in fronts:
+            skipped += 1
+            continue
+        created.append(add_card(ctx.deck, front, concept.summary, concept_id=concept.id))
+        fronts.add(normalise_front(front))
+    db.commit()
+    return {"created": cards_payload(db, user.id, created), "skipped": skipped}
+
+
+# ---------- Reviewing ----------
+
+
+@router.get("/api/workspaces/{workspace_id}/review/queue", response_model=ReviewQueueOut)
+def review_queue(
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+    deck_id: int | None = None,
+    course_id: int | None = None,
+    limit: int = Query(100, ge=1, le=200),
+    new: int = Query(DAILY_NEW_LIMIT, ge=0, le=DAILY_NEW_LIMIT),
+):
+    cards, decks = review_scope(db, access, deck_id, course_id)
+    queue = build_queue(db, access.user.id, cards, limit=limit, new_limit=new)
+    names = concept_names(db, (card.concept_id for card in cards))
+    entries: list[tuple[Flashcard, CardState | None]] = [*queue.due, *((card, None) for card in queue.new)]
+    items = []
+    for card, state in entries:
+        deck, course = decks[card.deck_id]
+        schedule = schedule_of(state) or CardSchedule()
+        items.append(
+            {
+                "id": card.id,
+                "deck_id": deck.id,
+                "deck_name": deck.name,
+                "course_id": course.id,
+                "course_title": course.title,
+                "course_color": course.color,
+                "front": card.front,
+                "back": card.back,
+                "hint": card.hint,
+                "concept_name": names.get(card.concept_id) if card.concept_id else None,
+                "status": card_status(schedule_of(state)),
+                "due_at": state.due_at if state else None,
+                "ease": schedule.ease,
+                "interval_days": schedule.interval_days,
+                "repetitions": schedule.repetitions,
+                "lapses": schedule.lapses,
+                "previews": preview_intervals(schedule),
+            }
+        )
+    return {
+        "cards": items,
+        "due": queue.due_total,
+        "new": queue.new_total,
+        "new_limit": DAILY_NEW_LIMIT,
+        "new_allowance": queue.new_allowance,
+        "next_due_at": queue.next_due_at,
+    }
+
+
+@router.post("/api/cards/{card_id}/review", response_model=ReviewOut)
+def review_card(card_id: int, data: ReviewIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    card, ctx = card_context(db, user, card_id)
+    if ctx.course.status == "archived":
+        raise HTTPException(400, "Cards in archived courses cannot be reviewed")
+    state, interval_before = apply_review(db, user.id, card, ctx.course.id, data.grade)
+    db.commit()
+    return {
+        "card_id": card.id,
+        "grade": data.grade,
+        "status": card_status(schedule_of(state)),
+        "ease": state.ease,
+        "interval_before": interval_before,
+        "interval_days": state.interval_days,
+        "repetitions": state.repetitions,
+        "lapses": state.lapses,
+        "due_at": state.due_at,
+        "display": format_interval(state.interval_days),
+    }
+
+
