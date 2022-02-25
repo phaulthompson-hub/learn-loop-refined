@@ -135,3 +135,123 @@ def filter_events(
     ]
 
 
+def expand(events: list[Event], payloads: Payloads, start: datetime, end: datetime) -> list[dict]:
+    items = [
+        {
+            "key": f"{event.id}:{occurrence.index}",
+            "index": occurrence.index,
+            "starts_at": occurrence.starts_at,
+            "ends_at": occurrence.ends_at,
+            "event": payloads.event(event),
+        }
+        for event in events
+        for occurrence in occurrences(event, start, end)
+    ]
+    # All-day items lead each day, then chronological, then by title for stable output.
+    items.sort(key=lambda o: (o["starts_at"], not o["event"]["all_day"], o["event"]["title"].lower(), o["key"]))
+    return items
+
+
+def check_course(db: Session, course_id: int | None, workspace_id: int) -> None:
+    if course_id is None:
+        return
+    course = db.get(Course, course_id)
+    if course is None or course.workspace_id != workspace_id:
+        raise HTTPException(422, "Choose a course from this workspace")
+
+
+def check_sharing(data: EventIn, access: Access) -> None:
+    if data.shared and data.kind in ANNOUNCED_KINDS and not access.can("instructor"):
+        raise HTTPException(403, f"Only instructors can share a {KIND_LABELS[data.kind]} with the workspace")
+
+
+def conflicts_for(db: Session, candidate: Event, access: Access) -> list[dict]:
+    others = [(e.id, e) for e in visible_events(db, access) if e.id != candidate.id]
+    by_id = dict(others)
+    return [
+        {
+            "event_id": c.key,
+            "title": by_id[c.key].title,
+            "kind": by_id[c.key].kind,
+            "starts_at": c.occurrence.starts_at,
+            "ends_at": c.occurrence.ends_at,
+            "index": c.occurrence.index,
+        }
+        for c in find_conflicts(candidate, others)
+    ]
+
+
+def when_text(event: Event) -> str:
+    if event.all_day:
+        return f"{event.starts_at:%a} {event.starts_at.day} {event.starts_at:%b} (all day)"
+    return f"{event.starts_at:%a} {event.starts_at.day} {event.starts_at:%b}, {event.starts_at:%H:%M} UTC"
+
+
+def planner_link(event: Event) -> str:
+    return f"/planner?date={event.starts_at.date().isoformat()}&event={event.id}"
+
+
+def announce(db: Session, event: Event, actor: User, headline: str) -> None:
+    """Notify every other workspace member about a shared exam or live session."""
+    member_ids = db.scalars(select(Membership.user_id).where(Membership.workspace_id == event.workspace_id))
+    for member_id in member_ids:
+        notify(
+            db,
+            user_id=member_id,
+            workspace_id=event.workspace_id,
+            actor_id=actor.id,
+            kind="event",
+            title=f"{headline}: {event.title}",
+            body=f"{actor.name} scheduled it for {when_text(event)}."
+            + (f" Location: {event.location}." if event.location else ""),
+            link=planner_link(event),
+        )
+
+
+def publish(db: Session, event: Event, actor: User) -> None:
+    """Side effects of an event becoming visible to the workspace (created shared, or shared later)."""
+    record(
+        db,
+        workspace_id=event.workspace_id,
+        actor_id=actor.id,
+        verb="event.created",
+        object_type="event",
+        object_id=event.id,
+        summary=f"scheduled the {KIND_LABELS[event.kind]} {event.title}",
+        link=planner_link(event),
+        detail=when_text(event),
+    )
+    if event.kind in ANNOUNCED_KINDS:
+        announce(db, event, actor, f"New {KIND_LABELS[event.kind]}")
+
+
+def saved_payload(db: Session, event: Event, access: Access) -> dict:
+    return {"event": Payloads(db, access, [event]).event(event), "conflicts": conflicts_for(db, event, access)}
+
+
+def event_access(db: Session, user: User, event_id: int) -> tuple[Event, Access]:
+    event = get_or_404(db, Event, event_id, "Event")
+    access = access_for(db, user, event.workspace_id)
+    if event.user_id != user.id and not event.shared:
+        raise HTTPException(404, "Event not found")
+    return event, access
+
+
+def require_editor(event: Event, access: Access) -> None:
+    if not can_edit(event, access):
+        raise HTTPException(403, "Only the organiser or a workspace admin can change this event")
+
+
+def parse_window(start: datetime | None, end: datetime | None) -> tuple[datetime, datetime]:
+    begin = naive_utc(start) if start is not None else datetime.combine(clock.today(), datetime.min.time())
+    finish = naive_utc(end) if end is not None else begin + timedelta(days=7)
+    if finish <= begin:
+        raise HTTPException(422, "The end of the range must be after its start")
+    if finish - begin > MAX_RANGE:
+        raise HTTPException(422, "Ask for at most 124 days of events at a time")
+    return begin, finish
+
+
+# ---------- Collection routes ----------
+
+
