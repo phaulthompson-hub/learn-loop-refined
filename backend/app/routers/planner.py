@@ -255,3 +255,159 @@ def parse_window(start: datetime | None, end: datetime | None) -> tuple[datetime
 # ---------- Collection routes ----------
 
 
+@router.get("/api/workspaces/{workspace_id}/events", response_model=OccurrencePage)
+def list_events(
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+    start: datetime | None = None,
+    end: datetime | None = None,
+    kind: str | None = Query(None, max_length=60),
+    course_id: int | None = None,
+    mine: bool | None = None,
+    shared: bool | None = None,
+):
+    begin, finish = parse_window(start, end)
+    events = filter_events(visible_events(db, access), access.user.id, parse_kinds(kind), course_id, mine, shared)
+    items = expand(events, Payloads(db, access, events), begin, finish)
+    return {"items": items, "total": len(items), "start": begin, "end": finish}
+
+
+@router.get("/api/workspaces/{workspace_id}/agenda", response_model=AgendaOut)
+def agenda(
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+    days: int = Query(7, ge=1, le=31),
+    kind: str | None = Query(None, max_length=60),
+    course_id: int | None = None,
+    mine: bool | None = None,
+):
+    """The next `days` days from today, one entry per day (empty days included)."""
+    today = clock.today()
+    begin = datetime.combine(today, datetime.min.time())
+    events = filter_events(visible_events(db, access), access.user.id, parse_kinds(kind), course_id, mine, None)
+    items = expand(events, Payloads(db, access, events), begin, begin + timedelta(days=days))
+    grouped: list[dict] = []
+    for offset in range(days):
+        day = today + timedelta(days=offset)
+        day_start = datetime.combine(day, datetime.min.time())
+        day_end = day_start + timedelta(days=1)
+        # Multi-day events appear on every day they cover.
+        grouped.append(
+            {"date": day, "items": [o for o in items if o["starts_at"] < day_end and o["ends_at"] > day_start]}
+        )
+    return {"start": today, "days": grouped, "total": len(items)}
+
+
+@router.post("/api/workspaces/{workspace_id}/events", response_model=EventSaved, status_code=201)
+def create_event(data: EventIn, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    check_course(db, data.course_id, access.workspace.id)
+    check_sharing(data, access)
+    event = Event(workspace_id=access.workspace.id, user_id=access.user.id, created_at=clock.now(), **data.dict())
+    db.add(event)
+    db.flush()
+    if event.shared:
+        publish(db, event, access.user)
+    db.commit()
+    db.refresh(event)
+    return saved_payload(db, event, access)
+
+
+@router.get("/api/workspaces/{workspace_id}/events.ics")
+def export_calendar(
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+    mine: bool | None = None,
+):
+    """Every visible event series as an iCalendar file (recurrence kept as RRULE, not expanded)."""
+    events = filter_events(visible_events(db, access), access.user.id, None, None, mine, None)
+    payloads = Payloads(db, access, events)
+    entries = [
+        IcsEvent(
+            uid=event_uid(e.id, e.workspace_id),
+            title=e.title,
+            starts_at=e.starts_at,
+            ends_at=e.ends_at,
+            all_day=e.all_day,
+            location=e.location,
+            description="\n\n".join(
+                part
+                for part in (
+                    e.notes,
+                    f"Course: {payloads.courses[e.course_id].title}" if e.course_id in payloads.courses else "",
+                )
+                if part
+            ),
+            category=e.kind,
+            recurrence=e.recurrence,
+            recurrence_until=e.recurrence_until,
+            created_at=e.created_at,
+        )
+        for e in events
+    ]
+    text = build_calendar(entries, name=f"LearnLoop · {access.workspace.name}", stamp=clock.now())
+    filename = f"learnloop-{access.workspace.slug}.ics"
+    return Response(
+        content=text,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------- Item routes ----------
+
+
+@router.get("/api/events/{event_id}", response_model=EventOut)
+def get_event(event_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    event, access = event_access(db, user, event_id)
+    return Payloads(db, access, [event]).event(event)
+
+
+@router.patch("/api/events/{event_id}", response_model=EventSaved)
+def update_event(event_id: int, patch: EventPatch, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    event, access = event_access(db, user, event_id)
+    require_editor(event, access)
+    current = {field: getattr(event, field) for field in EventIn.__fields__}
+    try:
+        data = EventIn.parse_obj({**current, **patch.dict(exclude_unset=True)})
+    except ValidationError as exc:
+        raise HTTPException(422, validation_detail(exc)) from exc
+    check_course(db, data.course_id, event.workspace_id)
+    newly_shared = data.shared and not event.shared
+    if newly_shared or (data.shared and data.kind != event.kind):
+        check_sharing(data, access)
+    moved = (data.starts_at, data.ends_at) != (event.starts_at, event.ends_at)
+    for field, value in data.dict().items():
+        setattr(event, field, value)
+    if newly_shared:
+        publish(db, event, user)
+    elif event.shared and event.kind in ANNOUNCED_KINDS and moved:
+        announce(db, event, user, f"Rescheduled {KIND_LABELS[event.kind]}")
+    db.commit()
+    db.refresh(event)
+    return saved_payload(db, event, access)
+
+
+@router.delete("/api/events/{event_id}", status_code=204)
+def delete_event(event_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    event, access = event_access(db, user, event_id)
+    require_editor(event, access)
+    if event.shared:
+        record(
+            db,
+            workspace_id=event.workspace_id,
+            actor_id=user.id,
+            verb="event.cancelled",
+            object_type="event",
+            object_id=None,
+            summary=f"cancelled the {KIND_LABELS[event.kind]} {event.title}",
+        )
+    db.delete(event)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.get("/api/events/{event_id}/conflicts", response_model=list[ConflictOut])
+def event_conflicts(event_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Clashes for a stored event (re-checked on demand, since other events change after it was saved)."""
+    event, access = event_access(db, user, event_id)
+    return conflicts_for(db, event, access)
