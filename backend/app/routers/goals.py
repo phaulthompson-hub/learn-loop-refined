@@ -253,3 +253,66 @@ def list_study_logs(
     return {**result, "total_minutes": sum(log.minutes for log in logs)}
 
 
+@router.post("/api/workspaces/{workspace_id}/study-logs", response_model=StudyLogOut, status_code=201)
+def create_study_log(data: StudyLogIn, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    workspace_course(db, data.course_id, access.workspace.id)
+    moment = check_log(db, access.user, data)
+    log = StudyLog(user_id=access.user.id, **data.dict(exclude={"logged_at"}), logged_at=moment)
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+    return log_payload(log, courses_by_id(db, [log]))
+
+
+@router.get("/api/workspaces/{workspace_id}/study-logs/summary", response_model=StudySummaryOut)
+def get_study_summary(
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+    weeks: int = Query(4, ge=1, le=12),
+):
+    user = access.user
+    summary = study_summary(db, user.id, access.workspace.id, clock.today(), weeks, user.week_starts_on)
+    return {**summary, "daily_goal_minutes": user.daily_goal_minutes}
+
+
+@router.patch("/api/study-logs/{log_id}", response_model=StudyLogOut)
+def update_study_log(
+    log_id: int, patch: StudyLogPatch, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    log = own_log(db, user, log_id)
+    current = {field: getattr(log, field) for field in StudyLogIn.__fields__}
+    try:
+        data = StudyLogIn.parse_obj({**current, **patch.dict(exclude_unset=True)})
+    except ValidationError as exc:
+        raise HTTPException(422, validation_detail(exc)) from exc
+    if data.course_id is not None and data.course_id != log.course_id:
+        course = get_or_404(db, Course, data.course_id, "Course")
+        access_for(db, user, course.workspace_id)
+    log.logged_at = check_log(db, user, data, exclude_id=log.id)
+    for field, value in data.dict(exclude={"logged_at"}).items():
+        setattr(log, field, value)
+    db.commit()
+    db.refresh(log)
+    return log_payload(log, courses_by_id(db, [log]))
+
+
+@router.delete("/api/study-logs/{log_id}", status_code=204)
+def delete_study_log(log_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    db.delete(own_log(db, user, log_id))
+    db.commit()
+    return Response(status_code=204)
+
+
+# ---------- Streak ----------
+
+
+@router.get("/api/workspaces/{workspace_id}/streak", response_model=StreakOut)
+def get_streak(
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+    weeks: int = Query(12, ge=4, le=26),
+):
+    """Personal streak plus a GitHub-style heatmap of answers, reviews and logged minutes."""
+    user = access.user
+    heatmap = activity_heatmap(db, user.id, clock.today(), weeks, user.week_starts_on)
+    return {**streak_summary(db, user.id), "week_starts_on": user.week_starts_on, "heatmap": heatmap}
