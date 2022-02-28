@@ -387,3 +387,139 @@ def move_task(task_id: int, data: TaskMove, user: User = Depends(current_user), 
     }
 
 
+@router.delete("/api/tasks/{task_id}", status_code=204)
+def delete_task(task_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    task, access = task_access(db, user, task_id)
+    if not can_delete_task(task, user.id, access.can("admin")):
+        raise HTTPException(403, "Only the reporter, the assignee or a workspace admin can delete this task")
+    db.delete(task)
+    db.commit()
+    return Response(status_code=204)
+
+
+# ---------- Checklist ----------
+
+
+def checklist_item(task: Task, item_id: int) -> ChecklistItem:
+    item = next((i for i in task.checklist if i.id == item_id), None)
+    if item is None:
+        raise HTTPException(404, "Checklist item not found")
+    return item
+
+
+@router.post("/api/tasks/{task_id}/checklist", response_model=ChecklistItemOut, status_code=201)
+def add_checklist_item(
+    task_id: int, data: ChecklistCreate, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    task, _ = task_access(db, user, task_id)
+    item = ChecklistItem(text=data.text, position=max((i.position for i in task.checklist), default=-1) + 1)
+    task.checklist.append(item)
+    touch(task)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.patch("/api/tasks/{task_id}/checklist/{item_id}", response_model=ChecklistItemOut)
+def update_checklist_item(
+    task_id: int, item_id: int, data: ChecklistUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    task, _ = task_access(db, user, task_id)
+    item = checklist_item(task, item_id)
+    if data.text is not None:
+        item.text = data.text
+    if data.done is not None:
+        item.done = data.done
+    touch(task)
+    db.commit()
+    return item
+
+
+@router.post("/api/tasks/{task_id}/checklist/{item_id}/toggle", response_model=ChecklistItemOut)
+def toggle_checklist_item(
+    task_id: int, item_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    task, _ = task_access(db, user, task_id)
+    item = checklist_item(task, item_id)
+    item.done = not item.done
+    touch(task)
+    db.commit()
+    return item
+
+
+@router.delete("/api/tasks/{task_id}/checklist/{item_id}", status_code=204)
+def delete_checklist_item(
+    task_id: int, item_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    task, _ = task_access(db, user, task_id)
+    task.checklist.remove(checklist_item(task, item_id))
+    for position, item in enumerate(task.checklist):
+        item.position = position
+    touch(task)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.put("/api/tasks/{task_id}/checklist/order", response_model=list[ChecklistItemOut])
+def reorder_checklist(
+    task_id: int, data: ChecklistOrder, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    task, _ = task_access(db, user, task_id)
+    items = {item.id: item for item in task.checklist}
+    if sorted(data.ids) != sorted(items):
+        raise HTTPException(422, "Send every checklist item id exactly once")
+    for position, item_id in enumerate(data.ids):
+        items[item_id].position = position
+    touch(task)
+    db.commit()
+    return [items[item_id] for item_id in data.ids]
+
+
+# ---------- Comments ----------
+
+
+def task_comment(task: Task, comment_id: int) -> TaskComment:
+    comment = next((c for c in task.comments if c.id == comment_id), None)
+    if comment is None:
+        raise HTTPException(404, "Comment not found")
+    return comment
+
+
+@router.get("/api/tasks/{task_id}/comments", response_model=list[CommentOut])
+def list_comments(task_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    task, access = task_access(db, user, task_id)
+    ctx = context_for(db, access)
+    return [comment_payload(c, ctx, user.id, access.can("admin")) for c in task.comments]
+
+
+@router.post("/api/tasks/{task_id}/comments", response_model=CommentOut, status_code=201)
+def add_comment(task_id: int, data: CommentIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    task, access = task_access(db, user, task_id)
+    comment = TaskComment(author_id=user.id, body=data.body, created_at=clock.now())
+    task.comments.append(comment)
+    touch(task)
+    ctx = context_for(db, access)
+    notify_comment(db, task, ctx, user, data.body)
+    db.commit()
+    db.refresh(comment)
+    return comment_payload(comment, ctx, user.id, access.can("admin"))
+
+
+@router.patch("/api/tasks/{task_id}/comments/{comment_id}", response_model=CommentOut)
+def edit_comment(
+    task_id: int, comment_id: int, data: CommentIn, user: User = Depends(current_user), db: Session = Depends(get_db)
+):
+    task, access = task_access(db, user, task_id)
+    comment = task_comment(task, comment_id)
+    if comment.author_id != user.id:
+        raise HTTPException(403, "You can only edit your own comments")
+    ctx = context_for(db, access)
+    before = set(mentioned_ids(comment.body, member_names(ctx)))
+    if data.body != comment.body:
+        comment.body = data.body
+        comment.edited_at = clock.now()
+        notify_comment(db, task, ctx, user, data.body, already_mentioned=before)
+    db.commit()
+    return comment_payload(comment, ctx, user.id, access.can("admin"))
+
+
