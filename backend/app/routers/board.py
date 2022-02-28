@@ -523,3 +523,65 @@ def edit_comment(
     return comment_payload(comment, ctx, user.id, access.can("admin"))
 
 
+@router.delete("/api/tasks/{task_id}/comments/{comment_id}", status_code=204)
+def delete_comment(task_id: int, comment_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    task, access = task_access(db, user, task_id)
+    comment = task_comment(task, comment_id)
+    if comment.author_id != user.id:
+        access.require("admin")
+    task.comments.remove(comment)
+    db.commit()
+    return Response(status_code=204)
+
+
+# ---------- Labels ----------
+
+
+def check_label_name(db: Session, workspace_id: int, name: str, exclude_id: int | None = None) -> None:
+    query = select(Label.id).where(Label.workspace_id == workspace_id, func.lower(Label.name) == name.lower())
+    if exclude_id is not None:
+        query = query.where(Label.id != exclude_id)
+    if db.scalars(query).first() is not None:
+        raise HTTPException(409, f"A label called '{name}' already exists")
+
+
+def label_access(db: Session, user: User, label_id: int) -> tuple[Label, Access]:
+    label = get_or_404(db, Label, label_id, "Label")
+    access = access_for(db, user, label.workspace_id)
+    return label, access.require("admin")
+
+
+@router.get("/api/workspaces/{workspace_id}/labels", response_model=list[LabelOut])
+def list_labels(access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    return workspace_labels(db, access.workspace.id)
+
+
+@router.post("/api/workspaces/{workspace_id}/labels", response_model=LabelOut, status_code=201)
+def create_label(data: LabelCreate, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    access.require("admin")
+    check_label_name(db, access.workspace.id, data.name)
+    label = Label(workspace_id=access.workspace.id, name=data.name, color=data.color)
+    db.add(label)
+    db.commit()
+    return label_payload(label)
+
+
+@router.patch("/api/labels/{label_id}", response_model=LabelOut)
+def update_label(label_id: int, data: LabelUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    label, _ = label_access(db, user, label_id)
+    if data.name is not None:
+        check_label_name(db, label.workspace_id, data.name, exclude_id=label.id)
+        label.name = data.name
+    if data.color is not None:
+        label.color = data.color
+    db.commit()
+    return label_payload(label, label_usage(db, label.workspace_id).get(label.id, 0))
+
+
+@router.delete("/api/labels/{label_id}", status_code=204)
+def delete_label(label_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    label, _ = label_access(db, user, label_id)
+    db.execute(task_labels.delete().where(task_labels.c.label_id == label.id))
+    db.delete(label)
+    db.commit()
+    return Response(status_code=204)
