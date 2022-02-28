@@ -257,3 +257,133 @@ def list_tasks(
 # ---------- One task ----------
 
 
+@router.post("/api/workspaces/{workspace_id}/tasks", response_model=TaskDetail, status_code=201)
+def create_task(data: TaskCreate, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    workspace_id = access.workspace.id
+    assignee = check_assignee(db, workspace_id, data.assignee_id)
+    check_course(db, workspace_id, data.course_id)
+    labels = workspace_label_set(db, workspace_id, data.label_ids)
+    now = clock.now()
+    task = Task(
+        workspace_id=workspace_id,
+        number=next_number(db, workspace_id),
+        title=data.title,
+        description=data.description,
+        status=data.status,
+        priority=data.priority,
+        assignee_id=data.assignee_id,
+        reporter_id=access.user.id,
+        course_id=data.course_id,
+        due_date=data.due_date,
+        estimate=data.estimate,
+        position=append_position([t.position for t in column_tasks(db, workspace_id, data.status)]),
+        labels=labels,
+        checklist=[ChecklistItem(text=text, position=i) for i, text in enumerate(data.checklist)],
+        created_at=now,
+        updated_at=now,
+        completed_at=now if data.status == "done" else None,
+    )
+    db.add(task)
+    db.flush()
+    ctx = context_for(db, access)
+    record(
+        db,
+        workspace_id=workspace_id,
+        actor_id=access.user.id,
+        verb="task.created",
+        object_type="task",
+        object_id=task.id,
+        summary=f"created {ctx.key(task)} {task.title}",
+        link=task_link(task),
+    )
+    if assignee is not None and assignee.id != access.user.id:
+        announce_assignment(db, task, ctx, access.user, assignee)
+    db.commit()
+    return detail_response(db, task, access)
+
+
+@router.get("/api/tasks/{task_id}", response_model=TaskDetail)
+def get_task(task_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    task, access = task_access(db, user, task_id)
+    return task_detail(task, context_for(db, access), user.id, access.can("admin"))
+
+
+@router.get("/api/workspaces/{workspace_id}/tasks/by-number/{number}", response_model=TaskDetail)
+def get_task_by_number(number: int, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    task = db.scalars(select(Task).where(Task.workspace_id == access.workspace.id, Task.number == number)).first()
+    if task is None:
+        raise HTTPException(404, "Task not found")
+    return task_detail(task, context_for(db, access), access.user.id, access.can("admin"))
+
+
+@router.patch("/api/tasks/{task_id}", response_model=TaskDetail)
+def update_task(task_id: int, data: TaskUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    task, access = task_access(db, user, task_id)
+    changes = data.dict(exclude_unset=True)
+    new_assignee = None
+    if "assignee_id" in changes:
+        new_assignee = check_assignee(db, task.workspace_id, changes["assignee_id"])
+    if "course_id" in changes:
+        check_course(db, task.workspace_id, changes["course_id"])
+    if changes.get("label_ids") is not None:
+        task.labels = workspace_label_set(db, task.workspace_id, changes["label_ids"])
+
+    for key in ("title", "description", "priority"):
+        if changes.get(key) is not None:
+            setattr(task, key, changes[key])
+    for key in ("course_id", "due_date", "estimate"):
+        if key in changes:
+            setattr(task, key, changes[key])
+
+    completed = False
+    if changes.get("status") is not None and changes["status"] != task.status:
+        # A status change through the form lands at the bottom of the new column.
+        task.position = append_position([t.position for t in column_tasks(db, task.workspace_id, changes["status"])])
+        completed = apply_status(task, changes["status"])
+
+    assigned = "assignee_id" in changes and changes["assignee_id"] != task.assignee_id
+    if assigned:
+        task.assignee_id = changes["assignee_id"]
+    touch(task)
+
+    ctx = context_for(db, access)
+    if completed:
+        record_completed(db, task, ctx, user)
+    if assigned and new_assignee is not None:
+        announce_assignment(db, task, ctx, user, new_assignee)
+    db.commit()
+    return detail_response(db, task, access)
+
+
+@router.post("/api/tasks/{task_id}/move", response_model=MoveOut)
+def move_task(task_id: int, data: TaskMove, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    task, access = task_access(db, user, task_id)
+    column = column_tasks(db, task.workspace_id, data.status, exclude_id=task.id)
+    try:
+        index = resolve_index(
+            [t.id for t in column], before_id=data.before_id, after_id=data.after_id, index=data.index
+        )
+    except UnknownNeighbour as exc:
+        raise HTTPException(422, f"Task {exc.args[0]} is not in the {data.status} column") from exc
+
+    plan = plan_move([t.position for t in column], index)
+    ordered = [*column[: plan.index], task, *column[plan.index :]]
+    if plan.rebalanced is not None:
+        for item, position in zip(ordered, plan.rebalanced, strict=True):
+            item.position = position
+    else:
+        task.position = plan.position
+    completed = apply_status(task, data.status)
+    touch(task)
+    ctx = context_for(db, access)
+    if completed:
+        record_completed(db, task, ctx, user)
+    db.commit()
+    db.refresh(task)
+    return {
+        "task": task_summary(task, ctx),
+        "column": [{"id": item.id, "position": item.position} for item in ordered],
+        "rebalanced": plan.rebalanced is not None,
+    }
+
+
