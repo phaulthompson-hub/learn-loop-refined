@@ -291,3 +291,127 @@ def list_notes(
     return {**result, "counts": counts}
 
 
+@router.get("/api/workspaces/{workspace_id}/notes/tags", response_model=list[TagCount])
+def note_tags(access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    counts: dict[str, int] = {}
+    for note in visible_notes(db, access.workspace.id, access.user.id):
+        for tag in note.tag_list:
+            counts[tag] = counts.get(tag, 0) + 1
+    return [{"tag": tag, "count": n} for tag, n in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]
+
+
+@router.get("/api/workspaces/{workspace_id}/notes/titles", response_model=list[NoteTitle])
+def note_titles(access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    """Every readable, active note title: feeds `[[` autocomplete and live link resolution in the editor."""
+    notes = visible_notes(db, access.workspace.id, access.user.id)
+    return [
+        {"id": n.id, "title": n.title, "mine": n.user_id == access.user.id, "updated_at": n.updated_at}
+        for n in sorted(notes, key=lambda n: n.title.casefold())
+    ]
+
+
+@router.post("/api/workspaces/{workspace_id}/notes", response_model=NoteOut, status_code=201)
+def create_note(data: NoteCreate, access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    course_id, concept_id = check_placement(db, access, data.course_id, data.concept_id)
+    ensure_unique_title(db, access.workspace.id, access.user.id, data.title)
+    now = clock.now()
+    note = Note(
+        workspace_id=access.workspace.id,
+        user_id=access.user.id,
+        course_id=course_id,
+        concept_id=concept_id,
+        title=data.title,
+        body=data.body,
+        tags=",".join(data.tags),
+        pinned=data.pinned,
+        shared=data.shared,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(note)
+    db.flush()
+    if note.shared:
+        record_shared(db, note, access.user)
+    db.commit()
+    return detail_payload(db, note, access.user)
+
+
+# ---------- Item routes ----------
+
+
+@router.get("/api/notes/{note_id}", response_model=NoteOut)
+def get_note(note_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    note, _ = note_access(db, user, note_id)
+    return detail_payload(db, note, user)
+
+
+@router.patch("/api/notes/{note_id}", response_model=NoteOut)
+def update_note(note_id: int, data: NoteUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    note, access = note_access(db, user, note_id)
+    require_author(note, user)
+    sent = data.__fields_set__
+    changed = False
+
+    if "course_id" in sent or "concept_id" in sent:
+        course_id = data.course_id if "course_id" in sent else note.course_id
+        concept_id = data.concept_id if "concept_id" in sent else note.concept_id
+        if "concept_id" not in sent and course_id != note.course_id:
+            concept_id = None  # the old concept belongs to the old course
+        course_id, concept_id = check_placement(db, access, course_id, concept_id)
+        changed |= (course_id, concept_id) != (note.course_id, note.concept_id)
+        note.course_id, note.concept_id = course_id, concept_id
+
+    if data.title is not None and data.title != note.title:
+        ensure_unique_title(db, note.workspace_id, user.id, data.title, exclude_id=note.id)
+        old_title, note.title = note.title, data.title
+        if wikilinks.normalise_title(old_title) != wikilinks.normalise_title(note.title):
+            relink_own_notes(db, note, old_title)
+        changed = True
+    if data.body is not None and data.body != note.body:
+        note.body = data.body
+        changed = True
+    if data.tags is not None and ",".join(data.tags) != note.tags:
+        note.tags = ",".join(data.tags)
+        changed = True
+    if data.shared is not None and data.shared != note.shared:
+        note.shared = data.shared
+        changed = True
+        if note.shared:
+            record_shared(db, note, user)
+
+    if changed:
+        note.updated_at = clock.now()
+    db.commit()
+    return detail_payload(db, note, user)
+
+
+@router.delete("/api/notes/{note_id}", status_code=204)
+def delete_note(note_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    note, _ = note_access(db, user, note_id)
+    require_author(note, user)
+    db.delete(note)
+    db.commit()
+    return Response(status_code=204)
+
+
+def _set_flags(db: Session, note_id: int, user: User, **flags: bool) -> dict:
+    note, _ = note_access(db, user, note_id)
+    require_author(note, user)
+    if flags.get("pinned") and note.archived:
+        raise HTTPException(409, "Restore the note before pinning it")
+    for name, value in flags.items():
+        setattr(note, name, value)
+    db.commit()
+    return detail_payload(db, note, user)
+
+
+@router.post("/api/notes/{note_id}/pin", response_model=NoteOut)
+def pin_note(note_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return _set_flags(db, note_id, user, pinned=True)
+
+
+@router.delete("/api/notes/{note_id}/pin", response_model=NoteOut)
+def unpin_note(note_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return _set_flags(db, note_id, user, pinned=False)
+
+
