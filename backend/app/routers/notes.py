@@ -415,3 +415,52 @@ def unpin_note(note_id: int, user: User = Depends(current_user), db: Session = D
     return _set_flags(db, note_id, user, pinned=False)
 
 
+@router.post("/api/notes/{note_id}/archive", response_model=NoteOut)
+def archive_note(note_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return _set_flags(db, note_id, user, archived=True, pinned=False)
+
+
+@router.post("/api/notes/{note_id}/restore", response_model=NoteOut)
+def restore_note(note_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    return _set_flags(db, note_id, user, archived=False)
+
+
+@router.post("/api/notes/{note_id}/duplicate", response_model=NoteOut, status_code=201)
+def duplicate_note(note_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Copy a note into the caller's own collection (private, unpinned), e.g. to annotate a shared note."""
+    note, _ = note_access(db, user, note_id)
+    own = db.scalars(select(Note.title).where(Note.workspace_id == note.workspace_id, Note.user_id == user.id))
+    now = clock.now()
+    copy = Note(
+        workspace_id=note.workspace_id,
+        user_id=user.id,
+        course_id=note.course_id,
+        concept_id=note.concept_id,
+        title=copy_title(note.title, {wikilinks.normalise_title(t) for t in own}),
+        body=note.body,
+        tags=note.tags,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(copy)
+    db.commit()
+    return detail_payload(db, copy, user)
+
+
+@router.get("/api/notes/{note_id}/backlinks", response_model=list[Backlink])
+def get_backlinks(note_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    note, _ = note_access(db, user, note_id)
+    found = backlinks_for(note, visible_notes(db, note.workspace_id, user.id))
+    found.sort(key=lambda pair: pair[0].updated_at, reverse=True)
+    refs = Refs.load(db, [other for other, _ in found])
+    return [
+        {
+            "id": other.id,
+            "title": other.title,
+            "mine": other.user_id == user.id,
+            "author": refs.users[other.user_id],
+            "updated_at": other.updated_at,
+            "context": search.excerpt(other.body, [(link.start, link.end)], 140),
+        }
+        for other, link in found
+    ]
