@@ -132,3 +132,130 @@ def note_candidates(scope: Scope) -> list[Candidate]:
     return candidates
 
 
+def task_candidates(scope: Scope) -> list[Candidate]:
+    tasks = scope.db.scalars(select(Task).where(Task.workspace_id == scope.access.workspace.id).order_by(Task.id))
+    prefix = workspace_prefix(scope.access.workspace.name)
+    return [
+        Candidate(
+            type="task",
+            id=t.id,
+            title=t.title,
+            fields=(t.description,),
+            subtitle=f"{task_key(prefix, t.number)} · {t.status.replace('_', ' ').capitalize()}",
+            link=f"/board?task={t.number}",
+            updated_at=t.updated_at,
+        )
+        for t in tasks
+    ]
+
+
+def card_candidates(scope: Scope) -> list[Candidate]:
+    if not scope.courses:
+        return []
+    rows = scope.db.execute(
+        select(Flashcard, Deck).join(Deck, Flashcard.deck_id == Deck.id).where(Deck.course_id.in_(scope.courses))
+    ).all()
+    return [
+        Candidate(
+            type="card",
+            id=card.id,
+            title=card.front,
+            fields=(card.back, card.hint),
+            subtitle=f"{deck.name} · {scope.courses[deck.course_id].title}",
+            link=f"/decks/{deck.id}",
+            updated_at=card.created_at,
+        )
+        for card, deck in rows
+    ]
+
+
+def event_candidates(scope: Scope) -> list[Candidate]:
+    access = scope.access
+    events = scope.db.scalars(
+        select(Event)
+        .where(Event.workspace_id == access.workspace.id, or_(Event.user_id == access.user.id, Event.shared.is_(True)))
+        .order_by(Event.starts_at)
+    )
+    return [
+        Candidate(
+            type="event",
+            id=e.id,
+            title=e.title,
+            fields=(e.location,),
+            subtitle=f"{e.kind.capitalize()} · {e.starts_at:%a %d %b}"
+            + ("" if e.all_day else f", {e.starts_at:%H:%M}"),
+            link=f"/planner?date={e.starts_at:%Y-%m-%d}",
+            updated_at=e.starts_at,
+        )
+        for e in events
+    ]
+
+
+PRODUCERS: dict[str, Callable[[Scope], list[Candidate]]] = {
+    "course": course_candidates,
+    "concept": concept_candidates,
+    "note": note_candidates,
+    "task": task_candidates,
+    "card": card_candidates,
+    "event": event_candidates,
+}
+
+
+def hit_payload(candidate: Candidate, score: float, query: search.Query) -> dict:
+    """The first secondary field with a match becomes the snippet; title-only matches have none."""
+    snippet = None
+    for text in candidate.fields:
+        ranges = search.highlight_ranges(text, query)
+        if ranges:
+            snippet = search.excerpt(text, ranges, SNIPPET_WIDTH)
+            break
+    return {
+        "type": candidate.type,
+        "id": candidate.id,
+        "title": candidate.title,
+        "title_highlights": search.highlight_ranges(candidate.title, query),
+        "subtitle": candidate.subtitle,
+        "snippet": snippet,
+        "link": candidate.link,
+        "score": round(score, 2),
+        "updated_at": candidate.updated_at,
+    }
+
+
+@router.get("/api/workspaces/{workspace_id}/search", response_model=SearchOut)
+def search_workspace(
+    access: Access = Depends(workspace_access),
+    db: Session = Depends(get_db),
+    q: str = Query("", max_length=100),
+    types: str | None = Query(None, max_length=80),
+    limit: int = Query(5, ge=1, le=50),
+):
+    """Ranked matches grouped by type. `counts` covers every requested type; `limit` applies per group."""
+    kinds = parse_types(types)
+    query = search.parse_query(q)
+    counts = dict.fromkeys(kinds, 0)
+    if not query:
+        return {"query": q.strip(), "terms": [], "total": 0, "counts": counts, "groups": []}
+    scope = Scope(db=db, access=access, courses=visible_courses(db, access))
+    groups = []
+    for kind in kinds:
+        hits = search.rank(
+            query,
+            PRODUCERS[kind](scope),
+            title=lambda c: c.title,
+            fields=lambda c: c.fields,
+            recency=lambda c: c.updated_at,
+        )
+        counts[kind] = len(hits)
+        if hits:
+            items = [hit_payload(hit.item, hit.score, query) for hit in hits[:limit]]
+            groups.append({"type": kind, "label": TYPE_LABELS[kind], "count": len(hits), "items": items})
+    # The group holding the single best match comes first; the order inside groups is by relevance.
+    groups.sort(key=lambda g: -g["items"][0]["score"])
+    return {
+        "query": query.raw,
+        "terms": list(query.terms),
+        "total": sum(counts.values()),
+        "counts": counts,
+        "groups": groups,
+    }
