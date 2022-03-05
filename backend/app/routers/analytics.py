@@ -309,3 +309,79 @@ def get_analytics(
     }
 
 
+@router.get("/api/workspaces/{workspace_id}/analytics/learners", response_model=LearnersOut)
+def get_learners(access: Access = Depends(workspace_access), db: Session = Depends(get_db), days: int = Query(30)):
+    """Instructor view: every member's mastery in every course, plus recent answering activity."""
+    access.require("instructor")
+    check_days(days)
+    period = stats.period_ending(clock.today(), days)
+    courses = [c for c in workspace_courses(db, access) if c.status != "archived"]
+    course_ids = [c.id for c in courses]
+    concepts_by_course: dict[int, list[int]] = {c.id: [] for c in courses}
+    for concept_id, concept_course in db.execute(
+        select(Concept.id, Concept.course_id).where(Concept.course_id.in_(course_ids))
+    ):
+        concepts_by_course[concept_course].append(concept_id)
+    all_concepts = [cid for ids in concepts_by_course.values() for cid in ids]
+    progress: dict[tuple[int, int], float] = {
+        (user_id, concept_id): mastery
+        for user_id, concept_id, mastery in db.execute(
+            select(ConceptProgress.user_id, ConceptProgress.concept_id, ConceptProgress.mastery).where(
+                ConceptProgress.concept_id.in_(all_concepts)
+            )
+        )
+    }
+    enrolled = set(
+        db.execute(select(Enrollment.user_id, Enrollment.course_id).where(Enrollment.course_id.in_(course_ids))).all()
+    )
+    answered: dict[int, tuple[int, int]] = {
+        user_id: (answers, correct or 0)
+        for user_id, answers, correct in db.execute(
+            select(Attempt.user_id, func.count(), func.sum(cast(Attempt.correct, Integer)))
+            .where(Attempt.course_id.in_(course_ids), Attempt.created_at >= period.start_at)
+            .group_by(Attempt.user_id)
+        )
+    }
+    last_active: dict[int, datetime] = dict(
+        db.execute(
+            select(Attempt.user_id, func.max(Attempt.created_at))
+            .where(Attempt.course_id.in_(course_ids))
+            .group_by(Attempt.user_id)
+        ).all()
+    )
+
+    members = db.scalars(select(Membership).where(Membership.workspace_id == access.workspace.id))
+    learners = []
+    for membership in members:
+        user = membership.user
+        cells = []
+        for course in courses:
+            ids = concepts_by_course[course.id]
+            touched = any((user.id, cid) in progress for cid in ids)
+            is_enrolled = (user.id, course.id) in enrolled
+            values = [progress.get((user.id, cid), INITIAL_MASTERY) for cid in ids]
+            cells.append(
+                {
+                    "course_id": course.id,
+                    "enrolled": is_enrolled,
+                    "mastery": stats.average(values) if ids and (is_enrolled or touched) else None,
+                    "mastered_concepts": stats.mastered_count(values),
+                }
+            )
+        known = [cell["mastery"] for cell in cells if cell["mastery"] is not None]
+        answers, correct = answered.get(user.id, (0, 0))
+        learners.append(
+            {
+                "user_id": user.id,
+                "name": user.name,
+                "avatar_color": user.avatar_color,
+                "role": membership.role,
+                "answers": answers,
+                "accuracy": stats.accuracy(correct, answers),
+                "last_active": last_active.get(user.id),
+                "average_mastery": stats.average(known) if known else None,
+                "cells": cells,
+            }
+        )
+    learners.sort(key=lambda row: (row["average_mastery"] is None, -(row["average_mastery"] or 0), row["name"]))
+    return {"days": days, "courses": [brief(c) for c in courses], "learners": learners}
