@@ -124,3 +124,159 @@ def focus_recommendation(db: Session, user_id: int, enrolled: Sequence[tuple[Enr
     }
 
 
+def my_tasks(db: Session, access: Access, courses: dict[int, Course], today: date) -> dict:
+    tasks = db.scalars(
+        select(Task).where(
+            Task.workspace_id == access.workspace.id, Task.assignee_id == access.user.id, Task.status != "done"
+        )
+    ).all()
+    ordered = sorted(
+        tasks,
+        key=lambda t: (t.due_date is None, t.due_date or date.max, PRIORITY_RANK.get(t.priority, 9), t.number),
+    )
+    items = [
+        {
+            "id": task.id,
+            "number": task.number,
+            "key": task_key(workspace_prefix(access.workspace.name), task.number),
+            "title": task.title,
+            "status": task.status,
+            "priority": task.priority,
+            "due_date": task.due_date,
+            "overdue": task.due_date is not None and task.due_date < today,
+            "due_in_days": (task.due_date - today).days if task.due_date else None,
+            "course": brief(courses[task.course_id]) if task.course_id in courses else None,
+        }
+        for task in ordered
+    ]
+    return {"items": items[:TASK_LIMIT], "total_open": len(items), "overdue": sum(1 for i in items if i["overdue"])}
+
+
+def active_goals(db: Session, access: Access, courses: dict[int, Course]) -> list[dict]:
+    goals = db.scalars(
+        select(Goal)
+        .where(Goal.workspace_id == access.workspace.id, Goal.user_id == access.user.id, Goal.archived.is_(False))
+        .order_by(Goal.id)
+    ).all()
+    items = []
+    for goal in goals:
+        progress = goal_progress(db, goal)
+        items.append(
+            {
+                "id": goal.id,
+                "title": goal.title,
+                "kind": goal.kind,
+                "period": goal.period,
+                "target": progress["target"],
+                "current": progress["current"],
+                "percent": progress["percent"],
+                "status": progress["status"],
+                "unit": progress.get("unit", ""),
+                "period_label": progress["period_label"],
+                "course": brief(courses[goal.course_id]) if goal.course_id in courses else None,
+            }
+        )
+    # Unfinished goals first, so the dashboard shows what still needs attention.
+    items.sort(key=lambda g: g["status"] == "done")
+    return items[:GOAL_LIMIT]
+
+
+def week_summary(db: Session, user_id: int, course_ids: Sequence[int], today: date) -> dict:
+    """The last 7 days against the 7 days before them (rolling, so Monday mornings are not empty)."""
+    week = stats.period_ending(today, 7)
+    previous = week.previous()
+    attempts = (
+        list(
+            db.scalars(
+                select(Attempt).where(
+                    Attempt.user_id == user_id,
+                    Attempt.course_id.in_(course_ids),
+                    Attempt.created_at >= previous.start_at,
+                )
+            )
+        )
+        if course_ids
+        else []
+    )
+    reviews = reviews_since(db, user_id, course_ids, previous.start_at)
+    logs = study_logs_since(db, user_id, course_ids, previous.start_at, include_unassigned=True)
+
+    def totals(period: stats.Period) -> tuple[list, list, list]:
+        return (
+            stats.in_period(attempts, period, lambda a: a.created_at),
+            stats.in_period(reviews, period, lambda r: r.reviewed_at),
+            stats.in_period(logs, period, lambda log: log.logged_at),
+        )
+
+    now_a, now_r, now_l = totals(week)
+    before_a, before_r, before_l = totals(previous)
+    series = stats.daily_series(week.dates(), now_a, now_r, now_l)
+    return {
+        "answers": stats.compare(len(now_a), len(before_a)),
+        "accuracy": stats.compare(
+            stats.accuracy(sum(a.correct for a in now_a), len(now_a)),
+            stats.accuracy(sum(a.correct for a in before_a), len(before_a)),
+        ),
+        "reviews": stats.compare(len(now_r), len(before_r)),
+        "minutes": stats.compare(sum(x.minutes for x in now_l), sum(x.minutes for x in before_l)),
+        "days": [
+            {
+                "date": row["date"],
+                "answers": row["correct"] + row["incorrect"],
+                "reviews": row["reviews"],
+                "minutes": row["minutes"],
+            }
+            for row in series
+        ],
+    }
+
+
+def onboarding(db: Session, access: Access, courses: dict[int, Course], enrolled: int) -> dict:
+    workspace_id, user_id = access.workspace.id, access.user.id
+
+    def count(query) -> int:
+        return db.scalar(select(func.count()).select_from(query.subquery())) or 0
+
+    return {
+        "courses": sum(1 for c in courses.values() if c.status != "archived"),
+        "enrolled": enrolled,
+        "decks": count(
+            select(Deck.id).join(Course, Deck.course_id == Course.id).where(Course.workspace_id == workspace_id)
+        ),
+        "events": count(
+            select(Event.id).where(
+                Event.workspace_id == workspace_id, or_(Event.user_id == user_id, Event.shared.is_(True))
+            )
+        ),
+        "goals": count(
+            select(Goal.id).where(Goal.workspace_id == workspace_id, Goal.user_id == user_id, Goal.archived.is_(False))
+        ),
+        "can_create_courses": access.can("instructor"),
+    }
+
+
+@router.get("/api/workspaces/{workspace_id}/home", response_model=HomeOut)
+def get_home(access: Access = Depends(workspace_access), db: Session = Depends(get_db)):
+    now = clock.now()
+    today = now.date()
+    user = access.user
+    courses = {c.id: c for c in workspace_courses(db, access)}
+    enrolled = enrolled_courses(db, access, courses)
+    return {
+        "greeting": {
+            "first_name": stats.first_name(user.name),
+            "part_of_day": stats.part_of_day(now.hour),
+            "today": today,
+            "now": now,
+        },
+        "streak": streak_summary(db, user.id),
+        "flashcards": due_summary(db, user.id, access.workspace.id),
+        "agenda": todays_agenda(db, access, courses, now),
+        "continue_learning": continue_learning(db, user.id, enrolled),
+        "focus": focus_recommendation(db, user.id, enrolled),
+        "tasks": my_tasks(db, access, courses, today),
+        "goals": active_goals(db, access, courses),
+        "week": week_summary(db, user.id, list(courses), today),
+        "activity": recent_activity(db, access.workspace.id, ACTIVITY_LIMIT),
+        "onboarding": onboarding(db, access, courses, len(enrolled)),
+    }
