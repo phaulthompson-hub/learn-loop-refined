@@ -122,3 +122,62 @@ def seed_people(ctx: SeedContext) -> None:
     ctx.db.commit()
 
 
+def seed_courses(ctx: SeedContext) -> None:
+    owners = {"northwind": ["maya", "maya", "jonas", "maya", "maya"], "biology": ["lena", "lena"]}
+    for ws_key, materials in (("northwind", NORTHWIND_MATERIALS), ("biology", BIOLOGY_MATERIALS)):
+        for index, material in enumerate(materials):
+            with clock.travel(ctx.at(45 - index * 3, 10)):
+                course = create_course(
+                    ctx.db,
+                    workspace_id=ctx.workspaces[ws_key].id,
+                    owner=ctx.users[owners[ws_key][index]],
+                    title=material.title,
+                    text=material.text,
+                    source_name=material.source_name,
+                    description=material.description,
+                    subject=material.subject,
+                    difficulty=material.difficulty,
+                    tags=material.tags,
+                    status=material.status,
+                )
+            ctx.courses[material.key] = course
+            ctx.course_workspace[material.key] = ws_key
+
+
+def seed_enrollments(ctx: SeedContext) -> None:
+    for user_key, course_keys in ENROLLMENTS.items():
+        user = ctx.users[user_key]
+        for index, course_key in enumerate(course_keys):
+            course = ctx.courses[course_key]
+            enrollment = next((e for e in course.enrollments if e.user_id == user.id), None)
+            if enrollment is None:
+                enrollment = Enrollment(user_id=user.id, course_id=course.id, enrolled_at=ctx.at(40 - index, 11))
+                ctx.db.add(enrollment)
+            enrollment.pinned = (user_key, course_key) in PINNED
+            days = LAST_OPENED.get((user_key, course_key))
+            enrollment.last_opened_at = ctx.at(days, 19) if days is not None else None
+    ctx.db.commit()
+
+
+def seed_history(ctx: SeedContext) -> None:
+    for (user_key, course_key), sessions in HISTORY.items():
+        user, course = ctx.users[user_key], ctx.courses[course_key]
+        for days_ago, hour, answers in sessions:
+            for minute, (order_index, correct) in enumerate(answers):
+                view = learner_course(ctx.db, course, user.id)
+                concept = next((c for c in view.concepts if c.order_index == order_index), None)
+                if concept is None:
+                    continue
+                qid = question_id(course.id, concept.id)
+                key = answer_key(view, qid, concept.id)
+                with clock.travel(ctx.at(days_ago, hour, minute * 2)):
+                    grade_answer(ctx.db, course, user, qid, concept.id, key if correct else (key + 1) % 4)
+    # Keep the "last opened" timestamps from seed_enrollments rather than the grading side effect.
+    seed_enrollments(ctx)
+
+
+def seed(ctx: SeedContext) -> None:
+    seed_people(ctx)
+    seed_courses(ctx)
+    seed_enrollments(ctx)
+    seed_history(ctx)
