@@ -424,3 +424,139 @@ DECKS: dict[str, tuple[str, str, tuple[Card, ...]]] = {
 }
 
 
+@dataclass(frozen=True)
+class StudyPlan:
+    """How one learner studied one deck: the days they sat down, and how well they tend to recall."""
+
+    days_ago: tuple[int, ...]
+    new_per_session: int
+    recall: float  # chance of remembering a due card
+    hour: int
+
+
+PLANS: dict[tuple[str, str], StudyPlan] = {
+    ("alex", "ml"): StudyPlan((21, 20, 18, 16, 14, 12, 10, 8, 6, 4), 3, 0.84, 19),
+    ("alex", "stats"): StudyPlan((17, 15, 12, 9, 6), 2, 0.78, 12),
+    ("alex", "sql"): StudyPlan((11, 8, 5, 3), 2, 0.88, 20),
+    ("alex", "cells"): StudyPlan((13, 11, 9, 7, 5, 2, 1), 3, 0.86, 17),
+    ("alex", "genetics"): StudyPlan((6, 4, 2), 3, 0.8, 17),
+    ("sam", "ml"): StudyPlan((19, 17, 15, 13, 11, 9, 7, 5, 3, 1), 3, 0.9, 8),
+    ("sam", "sql"): StudyPlan((14, 12, 10, 8, 6, 4, 2), 3, 0.92, 21),
+    ("priya", "stats"): StudyPlan((12, 10, 7, 4, 2), 3, 0.75, 10),
+    ("priya", "ml"): StudyPlan((6, 3), 2, 0.7, 16),
+    ("priya", "cells"): StudyPlan((5, 3, 1), 3, 0.8, 13),
+}
+
+SECONDS_PER_CARD = 25
+# Only the most recent sessions appear in the workspace feed; older ones would just be noise.
+FEED_DAYS = 7
+
+
+def concept_for(concepts: Sequence[Concept], topic: str | None) -> int | None:
+    """The concept a card practises: an exact or partial name match first, then a mention in the summary.
+
+    Concepts are extracted from the course text, so cards refer to them by topic rather than by id.
+    """
+    if not topic:
+        return None
+    key = topic.casefold()
+    for matches in (
+        lambda c: c.name.casefold() == key,
+        lambda c: key in c.name.casefold(),
+        lambda c: key in c.summary.casefold(),
+    ):
+        found = next((c for c in concepts if matches(c)), None)
+        if found is not None:
+            return found.id
+    return None
+
+
+def create_decks(ctx: SeedContext) -> dict[str, Deck]:
+    decks: dict[str, Deck] = {}
+    for index, (course_key, (name, description, cards)) in enumerate(DECKS.items()):
+        course = ctx.courses[course_key]
+        created = ctx.at(28 - index, 11)
+        deck = Deck(
+            course_id=course.id, name=name, description=description, created_by_id=course.owner_id, created_at=created
+        )
+        for position, (front, back, hint, topic) in enumerate(cards):
+            deck.cards.append(
+                Flashcard(
+                    front=front,
+                    back=back,
+                    hint=hint,
+                    concept_id=concept_for(course.concepts, topic),
+                    position=position,
+                    created_at=created,
+                )
+            )
+        ctx.db.add(deck)
+        decks[course_key] = deck
+    ctx.db.flush()
+    return decks
+
+
+def pick_grade(rng: Random, recall: float) -> int:
+    if rng.random() >= recall:
+        return AGAIN
+    roll = rng.random()
+    return HARD if roll < 0.15 else EASY if roll > 0.85 else GOOD
+
+
+def replay(ctx: SeedContext, user_key: str, course_key: str, deck: Deck, plan: StudyPlan) -> None:
+    """Replay each study session: due cards first, then a few new ones; forgotten cards are relearned."""
+    user = ctx.users[user_key]
+    course = ctx.courses[course_key]
+    rng = Random(f"{user_key}/{course_key}")
+    card_ids = [card.id for card in deck.cards]
+    for days_ago in sorted(plan.days_ago, reverse=True):
+        start = ctx.at(days_ago, plan.hour)
+        with clock.travel(start):
+            states = {
+                s.card_id: s
+                for s in ctx.db.scalars(
+                    select(CardState).where(CardState.user_id == user.id, CardState.card_id.in_(card_ids))
+                )
+            }
+            cutoff = end_of_today()
+        due = sorted((c for c in deck.cards if c.id in states and states[c.id].due_at < cutoff), key=lambda c: c.id)
+        fresh = [c for c in deck.cards if c.id not in states][: plan.new_per_session]
+        answers = [(card, pick_grade(rng, plan.recall)) for card in due + fresh]
+        # Cards answered "again" come back at the end of the session and are recalled that time.
+        answers += [(card, GOOD if rng.random() < 0.8 else HARD) for card, grade in answers if grade == AGAIN]
+        for index, (card, grade) in enumerate(answers):
+            with clock.travel(start + timedelta(seconds=SECONDS_PER_CARD * index)):
+                apply_review(ctx.db, user.id, card, course.id, grade)
+        if not answers:
+            continue
+        minutes = max(1, round(len(answers) * SECONDS_PER_CARD / 60))
+        reviewed = len(due) + len(fresh)
+        ctx.db.add(
+            StudyLog(
+                user_id=user.id,
+                course_id=course.id,
+                minutes=minutes,
+                activity="flashcards",
+                note=f"Reviewed {reviewed} flashcards in {deck.name}",
+                logged_at=start + timedelta(minutes=minutes),
+            )
+        )
+        if days_ago <= FEED_DAYS:
+            with clock.travel(start + timedelta(minutes=minutes)):
+                record(
+                    ctx.db,
+                    workspace_id=course.workspace_id,
+                    actor_id=user.id,
+                    verb="flashcards.reviewed",
+                    object_type="deck",
+                    object_id=deck.id,
+                    summary=f"reviewed {reviewed} flashcards in {deck.name}",
+                    link=f"/decks/{deck.id}",
+                )
+
+
+def seed(ctx: SeedContext) -> None:
+    decks = create_decks(ctx)
+    for (user_key, course_key), plan in PLANS.items():
+        replay(ctx, user_key, course_key, decks[course_key], plan)
+    ctx.db.commit()
