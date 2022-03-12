@@ -508,3 +508,47 @@ def seed_labels(ctx: SeedContext, workspace_key: str) -> dict[str, Label]:
     return labels
 
 
+def seed_tasks(ctx: SeedContext, workspace_key: str, specs: tuple[SeedTask, ...], labels: dict[str, Label]) -> None:
+    workspace = ctx.workspaces[workspace_key]
+    positions = {
+        status: iter(evenly_spaced(sum(1 for s in specs if s.status == status))) for status in {s.status for s in specs}
+    }
+    for number, spec in enumerate(specs, start=1):
+        created_at = ctx.at(spec.created, 10)
+        comments = [
+            TaskComment(author_id=ctx.users[author].id, body=body, created_at=ctx.at(days, hour))
+            for author, days, hour, body in spec.comments
+        ]
+        completed_at = ctx.at(spec.completed, 17) if spec.completed is not None else None
+        updated_at = max([created_at, *(c.created_at for c in comments), *([completed_at] if completed_at else [])])
+        ctx.db.add(
+            Task(
+                workspace_id=workspace.id,
+                course_id=ctx.courses[spec.course].id if spec.course else None,
+                number=number,
+                title=spec.title,
+                description=spec.description,
+                status=spec.status,
+                priority=spec.priority,
+                assignee_id=ctx.users[spec.assignee].id if spec.assignee else None,
+                reporter_id=ctx.users[spec.reporter].id,
+                due_date=ctx.ahead(spec.due).date() if spec.due is not None else None,
+                estimate=spec.estimate,
+                position=next(positions[spec.status]),
+                created_at=created_at,
+                updated_at=updated_at,
+                completed_at=completed_at,
+                labels=[labels[name] for name in spec.labels],
+                checklist=[
+                    ChecklistItem(text=text, done=done, position=i) for i, (text, done) in enumerate(spec.checklist)
+                ],
+                comments=comments,
+            )
+        )
+    ctx.db.flush()
+
+
+def seed(ctx: SeedContext) -> None:
+    for workspace_key, specs in (("northwind", NORTHWIND_TASKS), ("biology", BIOLOGY_TASKS)):
+        seed_tasks(ctx, workspace_key, specs, seed_labels(ctx, workspace_key))
+    ctx.db.commit()
