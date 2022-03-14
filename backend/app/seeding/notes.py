@@ -389,3 +389,79 @@ Private scratch notes.
 - [ ] Practise one window function question per day
 """
 
+NOTES: tuple[SeedNote, ...] = (
+    SeedNote("alex", "northwind", "Gradient descent cheat sheet", "ml", "Gradient Descent",
+             ("ml", "optimisation", "cheat-sheet"), (19, 20), (2, 19), GRADIENT, pinned=True, shared=True),
+    SeedNote("alex", "northwind", "Loss functions compared", "ml", "Loss Function",
+             ("ml", "cheat-sheet"), (17, 19), (6, 20), LOSSES),
+    SeedNote("alex", "northwind", "Overfitting checklist", "ml", "Model",
+             ("ml", "checklist"), (14, 18), (4, 19), OVERFITTING),
+    SeedNote("alex", "northwind", "Precision vs recall", "ml", None,
+             ("ml", "metrics"), (12, 18), (12, 19), PRECISION, shared=True),
+    SeedNote("alex", "northwind", "SQL joins field guide", "sql", "Join Keeps",
+             ("sql", "joins", "cheat-sheet"), (8, 21), (3, 21), JOINS, pinned=True, shared=True),
+    SeedNote("alex", "northwind", "Normalization in plain words", "sql", "Database Normalization",
+             ("sql", "design"), (7, 20), (7, 21), NORMALIZATION),
+    SeedNote("alex", "northwind", "Window functions scratchpad", "sql", None,
+             ("sql", "draft"), (3, 21), (1, 22), WINDOWS),
+    SeedNote("alex", "northwind", "Confidence intervals, intuitively", "stats", "Confidence Interval",
+             ("statistics",), (10, 13), (5, 13), CONFIDENCE),
+    SeedNote("alex", "northwind", "p-values without tears", "stats", "Null Hypothesis",
+             ("statistics", "exam"), (5, 13), (1, 13), PVALUES),
+    SeedNote("alex", "northwind", "Weekly study plan: March", None, None,
+             ("planning",), (7, 8), (0, 8), WEEK_PLAN),
+    SeedNote("alex", "northwind", "ML reading list (old)", "ml", None,
+             ("ml", "reading"), (40, 12), (30, 12), OLD_READING, archived=True),
+    SeedNote("alex", "biology", "Cell organelles at a glance", "cells", "Mitochondria",
+             ("exam-1", "cheat-sheet"), (11, 17), (2, 17), ORGANELLES, pinned=True),
+    SeedNote("alex", "biology", "Punnett square walkthrough", "genetics", "Alleles",
+             ("exam-2",), (6, 17), (6, 18), PUNNETT, shared=True),
+    SeedNote("maya", "northwind", "Common SQL mistakes (instructor notes)", "sql", None,
+             ("sql", "teaching"), (9, 10), (2, 10), SQL_MISTAKES, shared=True),
+    SeedNote("maya", "northwind", "Backprop derivation notes", "nn", "Activation Function",
+             ("deep-learning", "math"), (13, 11), (8, 11), BACKPROP, shared=True),
+    SeedNote("sam", "northwind", "Index tuning notes", "sql", None,
+             ("sql", "performance"), (6, 21), (1, 21), INDEXES, shared=True),
+    SeedNote("sam", "northwind", "Interview prep", None, None,
+             ("career",), (4, 22), (4, 22), INTERVIEW),
+)  # fmt: skip
+
+
+def concept_id(ctx: SeedContext, course_key: str | None, name: str | None) -> int | None:
+    """Concepts are extracted from course text, so look them up by name and tolerate a missing one."""
+    if course_key is None or name is None:
+        return None
+    return next((c.id for c in ctx.courses[course_key].concepts if c.name == name), None)
+
+
+def seed(ctx: SeedContext) -> None:
+    for spec in NOTES:
+        created, updated = ctx.at(*spec.created), ctx.at(*spec.updated)
+        note = Note(
+            workspace_id=ctx.workspaces[spec.workspace].id,
+            user_id=ctx.users[spec.author].id,
+            course_id=ctx.courses[spec.course].id if spec.course else None,
+            concept_id=concept_id(ctx, spec.course, spec.concept),
+            title=spec.title,
+            body=spec.body.strip() + "\n",
+            tags=",".join(spec.tags),
+            pinned=spec.pinned,
+            shared=spec.shared,
+            archived=spec.archived,
+            created_at=created,
+            updated_at=updated,
+        )
+        ctx.db.add(note)
+        ctx.db.flush()
+        if spec.shared:
+            with clock.travel(created):
+                record(
+                    ctx.db,
+                    workspace_id=note.workspace_id,
+                    actor_id=note.user_id,
+                    verb="note.shared",
+                    object_type="note",
+                    object_id=note.id,
+                    summary=f"shared the note {note.title}",
+                    link=f"/notes/{note.id}",
+                )
