@@ -262,3 +262,130 @@ It is **not**:
 See [[Confidence intervals, intuitively]].
 """
 
+WEEK_PLAN = """# Weekly study plan: March
+
+## This week
+
+- [x] Finish the gradient descent quiz with 3 correct in a row
+- [ ] Re-read [[Loss functions compared]] before the ML check-in
+- [ ] SQL: write three window function queries from [[Window functions scratchpad]]
+- [ ] Stats: explain [[p-values without tears|p-values]] to Sam without notes
+
+## Next week
+
+1. Neural networks module intro
+2. Review flashcards daily (10 minutes, mornings)
+
+Pinned references: [[Gradient descent cheat sheet]], [[SQL joins field guide]]
+"""
+
+OLD_READING = """# ML reading list (old)
+
+Replaced by the course material, kept for reference.
+
+- *Pattern Recognition and Machine Learning*, chapters 1–3
+- Andrew Ng's lecture notes on linear regression
+- ~~Blog post series on decision trees~~ (link is dead)
+"""
+
+ORGANELLES = """# Cell organelles at a glance
+
+| Organelle | Job | Remember it as |
+| --- | --- | --- |
+| Nucleus | stores DNA, directs protein synthesis | the head office |
+| Ribosome | builds proteins from mRNA | the assembly line |
+| Endoplasmic reticulum | folds and transports proteins | the corridors |
+| Golgi apparatus | modifies and packages proteins | the post room |
+| Mitochondria | makes ATP by cellular respiration | the power station |
+| Chloroplast (plants) | photosynthesis | the solar panel |
+
+## Exam 1 must-knows
+
+- Prokaryotes have **no nucleus**; eukaryotes do
+- Cellular respiration: glucose + oxygen → carbon dioxide + water + ATP
+- Mitosis gives two identical cells, meiosis gives gametes with half the chromosomes
+
+See also [[Punnett square walkthrough]] for exam 2.
+"""
+
+PUNNETT = """# Punnett square walkthrough
+
+Cross two heterozygous parents (**Bb × Bb**), where B (brown) is dominant over b (blue).
+
+```text
+        B      b
+   +------+------+
+ B |  BB  |  Bb  |
+   +------+------+
+ b |  Bb  |  bb  |
+   +------+------+
+```
+
+1. Genotypes: 1 BB : 2 Bb : 1 bb
+2. Phenotypes: 3 brown : 1 blue
+3. Probability of a blue-eyed child: **1/4**
+
+> Homozygous = two identical alleles (BB or bb). Heterozygous = two different alleles (Bb).
+
+Background on where the alleles live: [[Cell organelles at a glance]].
+"""
+
+SQL_MISTAKES = """# Common SQL mistakes (instructor notes)
+
+Patterns I see in almost every cohort's first assignment:
+
+1. `SELECT *` in production queries: name the columns
+2. Comparing with `= NULL` instead of `IS NULL`
+3. Aggregating without grouping by every non-aggregated column
+4. Filtering a left-joined table in `WHERE` (see [[SQL joins field guide]], Alex's write-up is great)
+
+```sql
+-- wrong: returns nothing, NULL is never equal to anything
+SELECT * FROM orders WHERE shipped_at = NULL;
+-- right
+SELECT id FROM orders WHERE shipped_at IS NULL;
+```
+
+Office hours on Thursdays; bring the query *and* the result you expected.
+"""
+
+BACKPROP = """# Backprop derivation notes
+
+Backpropagation is the chain rule applied layer by layer, from the loss back to each weight.
+
+For one neuron with activation `a = σ(z)` and `z = w·x + b`:
+
+- ∂L/∂w = ∂L/∂a · σ'(z) · x
+- ∂L/∂b = ∂L/∂a · σ'(z)
+
+## Why gradients vanish
+
+- sigmoid' is at most 0.25, so ten sigmoid layers shrink the gradient by 0.25¹⁰
+- ReLU keeps a gradient of 1 for positive inputs, which is why it is the default
+
+Pairs with the [[Gradient descent cheat sheet]] that Alex shared.
+"""
+
+INDEXES = """# Index tuning notes
+
+- An index speeds up reads on a column and slows down every write to the table
+- Composite index `(customer_id, placed_at)` serves filters on `customer_id` alone, not on `placed_at` alone
+- Check with `EXPLAIN QUERY PLAN` before and after
+
+```sql
+CREATE INDEX idx_orders_customer_date ON orders (customer_id, placed_at);
+```
+
+- [x] Add the composite index to the orders table
+- [ ] Measure the insert slowdown on the nightly load
+"""
+
+INTERVIEW = """# Interview prep
+
+Private scratch notes.
+
+- Explain ACID with a bank transfer example
+- Difference between inner and left join, with a diagram
+- [ ] Practise one window function question per day
+"""
+
