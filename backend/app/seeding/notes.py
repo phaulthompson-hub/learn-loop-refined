@@ -131,3 +131,134 @@ PRECISION = """# Precision vs recall
 Back to [[Overfitting checklist]].
 """
 
+JOINS = """# SQL joins field guide
+
+Every join is "match rows from two tables on a condition". The type decides what happens to rows
+without a match.
+
+## Inner join: only matches
+
+```sql
+SELECT o.id, c.name
+FROM orders AS o
+JOIN customers AS c ON c.id = o.customer_id;
+```
+
+## Left join: keep everything on the left
+
+```sql
+SELECT c.name, COUNT(o.id) AS orders
+FROM customers AS c
+LEFT JOIN orders AS o ON o.customer_id = c.id
+GROUP BY c.name;
+```
+
+Customers with no orders still appear, with `0` orders (`COUNT` ignores NULL).
+
+## Common traps
+
+- Filtering the right table in `WHERE` silently turns a left join into an inner join; move the
+  condition into `ON` instead
+- Joining on a non-unique column multiplies rows; check with `COUNT(*)` before and after
+- Always alias tables once there are two or more
+
+Next: [[Window functions scratchpad]] and [[Normalization in plain words]].
+"""
+
+NORMALIZATION = """# Normalization in plain words
+
+Normalization = store each fact **once**, then join when you need it.
+
+1. **1NF**: one value per cell, no repeating groups
+2. **2NF**: every column depends on the *whole* primary key
+3. **3NF**: no column depends on another non-key column
+
+## Example
+
+A single `orders` table holding customer name and email repeats them on every order. Split it:
+
+```sql
+CREATE TABLE customers (
+  id    INTEGER PRIMARY KEY,
+  name  TEXT NOT NULL,
+  email TEXT UNIQUE
+);
+
+CREATE TABLE orders (
+  id          INTEGER PRIMARY KEY,
+  customer_id INTEGER REFERENCES customers(id),
+  placed_at   TIMESTAMP
+);
+```
+
+Now an email change is one `UPDATE`, not hundreds. Reading it back needs a join: [[SQL joins field guide]].
+
+---
+
+*When to denormalise:* reporting tables and caches, where reads vastly outnumber writes.
+"""
+
+WINDOWS = """# Window functions scratchpad
+
+Window functions compute across related rows **without** collapsing them like `GROUP BY` does.
+
+```sql
+SELECT
+  customer_id,
+  placed_at,
+  total,
+  SUM(total) OVER (PARTITION BY customer_id ORDER BY placed_at) AS running_total,
+  ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY placed_at DESC) AS recency_rank
+FROM orders;
+```
+
+- `PARTITION BY` = the group, `ORDER BY` = the order inside it
+- `ROW_NUMBER() = 1` with `ORDER BY placed_at DESC` gives each customer's latest order
+- `LAG(total)` compares a row with the previous one
+
+## Still to figure out
+
+- [ ] Frame clauses (`ROWS BETWEEN 6 PRECEDING AND CURRENT ROW`) for 7-day averages
+- [ ] Why the query plan for this is slow, see [[Query plans]]
+
+Builds on [[SQL joins field guide]].
+"""
+
+CONFIDENCE = """# Confidence intervals, intuitively
+
+A 95% confidence interval comes from a **procedure** that captures the true value in 95% of repeated
+samples. It is *not* a 95% chance that this particular interval contains it.
+
+- wider interval = more uncertainty
+- bigger sample = narrower interval (width shrinks with the square root of n)
+- mean ± 1.96 × standard error, for large samples
+
+```python
+from statistics import mean, stdev
+se = stdev(sample) / len(sample) ** 0.5
+low, high = mean(sample) - 1.96 * se, mean(sample) + 1.96 * se
+```
+
+If the interval for a difference excludes 0, the matching test gives p < 0.05: see
+[[p-values without tears]].
+"""
+
+PVALUES = """# p-values without tears
+
+> The p-value is the probability of data at least this extreme **if the null hypothesis were true**.
+
+It is **not**:
+
+- the probability that the null hypothesis is true
+- the size or importance of an effect
+- proof of anything; a hypothesis test can only reject or fail to reject
+
+## Checklist before quoting a p-value
+
+- [x] State the null hypothesis in words
+- [x] Pick the significance level *before* looking at the data
+- [ ] Report the effect size and a confidence interval too
+
+See [[Confidence intervals, intuitively]].
+"""
+
