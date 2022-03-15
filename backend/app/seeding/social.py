@@ -282,3 +282,91 @@ def plan_notifications(ctx: SeedContext) -> list[Planned]:
     return plans
 
 
+def seed_notifications(ctx: SeedContext) -> None:
+    for plan in plan_notifications(ctx):
+        with clock.travel(ctx.at(plan.days_ago, plan.hour)):
+            notification = notify(
+                ctx.db,
+                user_id=ctx.users[plan.user].id,
+                kind=plan.kind,
+                title=plan.title,
+                body=plan.body,
+                link=plan.link,
+                workspace_id=ctx.workspaces[plan.workspace].id if plan.workspace else None,
+                actor_id=ctx.users[plan.actor].id if plan.actor else None,
+            )
+        if notification is not None and plan.read:
+            notification.read_at = min(notification.created_at + timedelta(hours=3), ctx.now)
+
+
+def seed_member_activity(ctx: SeedContext) -> None:
+    """A "joined the workspace" entry per member; a few arrivals are moved to recent days."""
+    recent = {(ws, user): days for ws, user, days in RECENT_JOINS}
+    for ws_key, workspace in ctx.workspaces.items():
+        memberships = ctx.db.scalars(
+            select(Membership).where(Membership.workspace_id == workspace.id).order_by(Membership.id)
+        )
+        keys = {user.id: key for key, user in ctx.users.items()}
+        for membership in memberships:
+            if membership.role == "owner":
+                continue
+            days = recent.get((ws_key, keys.get(membership.user_id)))
+            if days is not None:
+                membership.joined_at = ctx.at(days, 9, 30)
+            with clock.travel(membership.joined_at):
+                record(
+                    ctx.db,
+                    workspace_id=workspace.id,
+                    actor_id=membership.user_id,
+                    verb="member.joined",
+                    object_type="member",
+                    object_id=membership.user_id,
+                    summary=f"joined {workspace.name} as {membership.role}",
+                    link="/members",
+                )
+
+
+def seed_course_activity(ctx: SeedContext) -> None:
+    nn = ctx.courses["nn"]
+    with clock.travel(ctx.at(2, 10)):
+        record(
+            ctx.db,
+            workspace_id=nn.workspace_id,
+            actor_id=nn.owner_id,
+            verb="course.published",
+            object_type="course",
+            object_id=nn.id,
+            summary=f"published {nn.title}",
+            link=f"/courses/{nn.id}",
+            detail=nn.description,
+        )
+
+
+def seed_quiz_sessions(ctx: SeedContext) -> None:
+    """One feed entry per practice session (a learner's answers in one course on one day)."""
+    sessions: dict[tuple[int, int, str], list[Attempt]] = defaultdict(list)
+    for attempt in ctx.db.scalars(select(Attempt).order_by(Attempt.created_at, Attempt.id)):
+        sessions[(attempt.user_id, attempt.course_id, attempt.created_at.date().isoformat())].append(attempt)
+    courses = {course.id: course for course in ctx.courses.values()}
+    for (user_id, course_id, _), attempts in sessions.items():
+        course = courses[course_id]
+        correct = sum(a.correct for a in attempts)
+        finished: datetime = attempts[-1].created_at
+        with clock.travel(finished + timedelta(minutes=1)):
+            record(
+                ctx.db,
+                workspace_id=course.workspace_id,
+                actor_id=user_id,
+                verb="quiz.completed",
+                object_type="course",
+                object_id=course.id,
+                summary=f"practised {course.title}: {correct} of {len(attempts)} correct",
+                link=f"/courses/{course.id}",
+            )
+
+
+def seed(ctx: SeedContext) -> None:
+    seed_member_activity(ctx)
+    seed_course_activity(ctx)
+    seed_quiz_sessions(ctx)
+    seed_notifications(ctx)
