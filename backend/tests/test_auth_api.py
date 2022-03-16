@@ -123,3 +123,58 @@ def test_deactivated_accounts_cannot_sign_in(client, seeded, db):
     assert "deactivated" in response.json()["detail"]
 
 
+def test_logout_invalidates_only_that_token(client, seeded):
+    first = login(client, "sam@learnloop.dev")
+    second = login(client, "sam@learnloop.dev")
+    assert client.post("/api/auth/logout", headers=first).status_code == 204
+    assert client.get("/api/auth/me", headers=first).status_code == 401
+    assert client.get("/api/auth/me", headers=second).status_code == 200
+    assert client.post("/api/auth/logout", headers=first).status_code == 401
+
+
+def test_me_requires_a_valid_bearer_token(client, seeded):
+    assert client.get("/api/auth/me").status_code == 401
+    assert client.get("/api/auth/me", headers={"Authorization": "Bearer made-up"}).status_code == 401
+    token = login(client, "sam@learnloop.dev")["Authorization"].split()[1]
+    assert client.get("/api/auth/me", headers={"Authorization": f"Basic {token}"}).status_code == 401
+    assert client.get("/api/auth/me", headers={"Authorization": "Bearer "}).status_code == 401
+    assert client.get("/api/auth/me", headers={"Authorization": f"bearer {token}"}).status_code == 200
+
+
+def test_sessions_expire_after_the_configured_lifetime(client, seeded):
+    headers = login(client, "sam@learnloop.dev")
+    with clock.travel(clock.now() + timedelta(days=29)):
+        assert client.get("/api/auth/me", headers=headers).status_code == 200
+    with clock.travel(clock.now() + timedelta(days=31)):
+        assert client.get("/api/auth/me", headers=headers).status_code == 401
+
+
+def test_me_counts_unread_notifications(client, newcomer):
+    headers, _ = newcomer
+    assert client.get("/api/auth/me", headers=headers).json()["unread_notifications"] == 0
+
+
+# ---------- Switching workspaces ----------
+
+
+def test_switch_workspace_is_remembered_for_the_next_sign_in(client, alex, biology):
+    response = client.put(f"/api/auth/me/workspace/{biology}", headers=alex)
+    assert response.status_code == 200
+    assert response.json()["current_workspace_id"] == biology
+    again = login(client, "demo@learnloop.dev")
+    assert client.get("/api/auth/me", headers=again).json()["current_workspace_id"] == biology
+
+
+def test_switch_to_a_workspace_you_are_not_in_is_404(client, sam, biology):
+    assert client.put(f"/api/auth/me/workspace/{biology}", headers=sam).status_code == 404
+    assert client.put("/api/auth/me/workspace/99999", headers=sam).status_code == 404
+
+
+def test_switch_requires_sign_in(client, seeded):
+    assert client.put("/api/auth/me/workspace/1").status_code == 401
+
+
+def test_new_account_helpers_agree(client):
+    headers, ws, body = register(client, email="helper@example.com", workspace="Helper Space")
+    assert body["current_workspace_id"] == ws
+    assert workspace_id(client, headers, "helper-space") == ws
