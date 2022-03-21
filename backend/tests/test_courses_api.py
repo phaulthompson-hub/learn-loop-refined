@@ -125,3 +125,125 @@ def test_enrolled_filter_is_per_user(client, sam, northwind):
     }
 
 
+def test_pinned_courses_lead_every_sort_order(client, alex, northwind):
+    ordered = titles(catalogue(client, alex, northwind, sort="title"))
+    assert ordered == [
+        "Introduction to Machine Learning",
+        "Neural Networks in Practice",
+        "Relational Databases & SQL",
+        "Statistics Fundamentals",
+    ]
+    assert titles(catalogue(client, alex, northwind, sort="-title"))[0] == "Introduction to Machine Learning"
+
+
+def test_sort_by_difficulty_and_learners(client, sam, northwind):
+    by_difficulty = titles(catalogue(client, sam, northwind, sort="-difficulty"))
+    assert by_difficulty[:2] == ["Neural Networks in Practice", "Relational Databases & SQL"]
+    page = catalogue(client, sam, northwind, sort="-learners")
+    counts = [c["learners"] for c in page["items"]]
+    assert counts == sorted(counts, reverse=True)
+
+
+def test_sort_by_mastery_uses_the_viewers_own_progress(client, alex, northwind):
+    page = catalogue(client, alex, northwind, sort="-mastery", status="all")
+    unpinned = [c for c in page["items"] if not c["pinned"]]
+    values = [c["mastery"] for c in unpinned]
+    assert values == sorted(values, reverse=True)
+
+
+def test_pagination_reports_totals_and_clamps_the_page(client, alex, northwind):
+    second = catalogue(client, alex, northwind, page_size=3, page=2, sort="title")
+    assert (second["total"], second["page"], second["page_size"], len(second["items"])) == (4, 2, 3, 1)
+    beyond = catalogue(client, alex, northwind, page_size=3, page=99)
+    assert beyond["page"] == 2
+
+
+def test_unknown_sort_field_is_rejected_with_a_readable_message(client, alex, northwind):
+    response = client.get(f"/api/workspaces/{northwind}/courses", params={"sort": "-owner"}, headers=alex)
+    assert response.status_code == 422
+    assert "Cannot sort by 'owner'" in response.json()["detail"]
+
+
+def test_summaries_are_personal(client, alex, sam, ml_course, northwind):
+    sams = find_course(client, sam, northwind, "Introduction to Machine Learning")
+    assert ml_course["id"] == sams["id"]
+    assert ml_course["pinned"] is True and sams["pinned"] is False
+    assert ml_course["attempts"] == 31 and sams["attempts"] == 9
+    assert ml_course["mastery"] != sams["mastery"]
+    assert ml_course["learners"] == sams["learners"] == 4
+
+
+# ---------- Creating courses ----------
+
+
+def test_create_course_from_pasted_text(client, newcomer, db):
+    headers, workspace = newcomer
+    response = create(
+        client,
+        headers,
+        workspace,
+        title="  Recursion  ",
+        subject=" Computer Science ",
+        difficulty="intermediate",
+        tags=" Algorithms, algorithms ,CS ",
+        description="How functions call themselves.",
+        status="draft",
+        color="#2563EB",
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["title"] == "Recursion"
+    assert (body["subject"], body["difficulty"], body["status"]) == ("Computer Science", "intermediate", "draft")
+    assert body["tags"] == ["algorithms", "cs"]
+    assert body["color"] == "#2563eb"
+    assert body["sources"][0]["name"] == "pasted-notes.txt"
+    assert body["sources"][0]["characters"] == len(TEXT)
+    assert body["enrolled"] is True and body["learners"] == 1
+    concepts = body["concepts"]
+    assert "Base Case" in [c["name"] for c in concepts]
+    assert concepts[0]["prerequisite_id"] is None
+    for previous, current in zip(concepts, concepts[1:], strict=False):
+        assert current["prerequisite_id"] == previous["id"]
+    assert [c["unlocked"] for c in concepts] == [True] + [False] * (len(concepts) - 1)
+    verbs = db.scalars(select(Activity.verb).where(Activity.workspace_id == workspace)).all()
+    assert "course.created" in verbs
+
+
+def test_created_courses_get_a_default_description_and_palette_colour(client, newcomer):
+    headers, workspace = newcomer
+    first = create(client, headers, workspace).json()
+    second = create(client, headers, workspace, title="Recursion II").json()
+    assert first["description"] == "Adaptive path generated from pasted-notes.txt"
+    assert first["color"] != second["color"]
+
+
+def test_upload_markdown_file_creates_course_with_details(client, newcomer):
+    headers, workspace = newcomer
+    response = client.post(
+        f"/api/workspaces/{workspace}/courses/upload",
+        data={
+            "title": "Graph basics",
+            "subject": "Algorithms",
+            "difficulty": "advanced",
+            "tags": "graphs, search",
+            "status": "draft",
+            "color": "#9333ea",
+        },
+        files={"file": ("notes/graphs.md", TEXT.encode(), "text/markdown")},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["sources"][0]["name"] == "graphs.md"
+    assert (body["subject"], body["difficulty"], body["status"], body["color"]) == (
+        "Algorithms",
+        "advanced",
+        "draft",
+        "#9333ea",
+    )
+    assert body["tags"] == ["graphs", "search"]
+
+
+# ---------- One course ----------
+
+
