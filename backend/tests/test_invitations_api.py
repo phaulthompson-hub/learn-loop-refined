@@ -120,3 +120,121 @@ def test_invitees_with_an_account_are_notified(client, alex, northwind, db):
     assert activity.summary == "invited 1 person to join as learner"
 
 
+def test_invite_role_rules(client, alex, maya, sam, northwind):
+    assert invite(client, alex, northwind, ["boss@example.com"], role="owner").status_code == 403
+    assert invite(client, maya, northwind, ["boss@example.com"], role="owner").status_code == 201
+    assert invite(client, sam, northwind, ["friend@example.com"]).status_code == 403
+    assert invite(client, alex, northwind, ["x@example.com"], role="emperor").status_code == 422
+
+
+def test_invite_validation(client, alex, northwind):
+    assert invite(client, alex, northwind, []).status_code == 422
+    assert invite(client, alex, northwind, [" ,; "]).status_code == 422
+    too_many = [f"person{n}@example.com" for n in range(51)]
+    assert invite(client, alex, northwind, [", ".join(too_many)]).status_code == 422
+    assert invite(client, alex, northwind, ["a@example.com"], message="m" * 501).status_code == 422
+    only_invalid = invite(client, alex, northwind, ["nope"])
+    assert only_invalid.status_code == 201 and only_invalid.json()["invited"] == 0
+
+
+# ---------- Revoke and resend ----------
+
+
+def test_revoke_a_pending_invitation(client, alex, northwind, db):
+    nora = by_token(db, "demo-invite-northwind-nora")
+    url = f"/api/workspaces/{northwind}/invitations/{nora.id}/revoke"
+    response = client.post(url, headers=alex)
+    assert response.status_code == 200 and response.json()["status"] == "revoked"
+    assert client.post(url, headers=alex).status_code == 409
+    assert client.get("/api/invitations/demo-invite-northwind-nora").json()["status"] == "revoked"
+
+
+def test_invitation_ids_are_scoped_to_their_workspace(client, alex, northwind, biology, db):
+    kai = by_token(db, "demo-invite-biology-kai")
+    assert client.post(f"/api/workspaces/{northwind}/invitations/{kai.id}/revoke", headers=alex).status_code == 404
+    sam = login(client, "sam@learnloop.dev")
+    nora = by_token(db, "demo-invite-northwind-nora")
+    assert client.post(f"/api/workspaces/{northwind}/invitations/{nora.id}/revoke", headers=sam).status_code == 403
+
+
+def test_resend_gives_a_fresh_expiry_and_keeps_the_link(client, alex, northwind, db):
+    tomas = by_token(db, "demo-invite-northwind-tomas")
+    response = client.post(f"/api/workspaces/{northwind}/invitations/{tomas.id}/resend", headers=alex)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "pending" and body["token"] == "demo-invite-northwind-tomas"
+    assert body["expires_at"] == (NOW + timedelta(days=14)).isoformat()
+    ravi = by_token(db, "demo-invite-northwind-ravi")
+    assert client.post(f"/api/workspaces/{northwind}/invitations/{ravi.id}/resend", headers=alex).status_code == 409
+
+
+# ---------- Public preview ----------
+
+
+def test_preview_works_signed_out(client, seeded):
+    response = client.get("/api/invitations/demo-invite-northwind-diego")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["email"] == "diego@learnloop.dev" and body["role"] == "instructor"
+    assert body["status"] == "pending" and body["expired"] is False
+    assert body["workspace"]["name"] == "Northwind Data Academy" and body["workspace"]["members"] == 5
+    assert body["inviter"] == {"name": "Maya Chen", "avatar_color": "#9333ea"}
+    assert body["viewer_email_matches"] is None and body["viewer_is_member"] is None
+
+
+def test_preview_of_expired_and_unknown_invitations(client, seeded):
+    expired = client.get("/api/invitations/demo-invite-northwind-tomas").json()
+    assert expired["status"] == "expired" and expired["expired"] is True
+    assert client.get("/api/invitations/not-a-real-token").status_code == 404
+
+
+def test_preview_tells_a_signed_in_viewer_whether_it_is_theirs(client, alex):
+    body = client.get("/api/invitations/demo-invite-biology-kai", headers=alex).json()
+    assert body["viewer_email_matches"] is False and body["viewer_is_member"] is True
+    stale = client.get("/api/invitations/demo-invite-biology-kai", headers={"Authorization": "Bearer stale"})
+    assert stale.status_code == 200 and stale.json()["viewer_email_matches"] is None
+
+
+def test_diego_invitation_expires_on_schedule(client, seeded):
+    # Sent 12 days ago with the 14-day window, so it lapses on Wednesday at 10:30.
+    with clock.travel(NOW + timedelta(days=2, hours=1)):
+        assert client.get("/api/invitations/demo-invite-northwind-diego").json()["status"] == "pending"
+    with clock.travel(NOW + timedelta(days=2, hours=2)):
+        assert client.get("/api/invitations/demo-invite-northwind-diego").json()["status"] == "expired"
+
+
+# ---------- Accepting ----------
+
+
+def test_accept_joins_the_workspace_and_switches_to_it(client, seeded, db):
+    headers, own_workspace, _ = register(client, name="Nora Lind", email="nora@learnloop.dev")
+    response = client.post("/api/invitations/demo-invite-northwind-nora/accept", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    northwind = body["workspace_id"]
+    assert body["current_workspace_id"] == northwind
+    assert {w["id"]: w["role"] for w in body["workspaces"]} == {own_workspace: "owner", northwind: "learner"}
+    assert by_token(db, "demo-invite-northwind-nora").status == "accepted"
+    alex = db.scalars(select(User).where(User.email == "demo@learnloop.dev")).one()
+    note = db.scalars(select(Notification).where(Notification.user_id == alex.id)).all()[-1]
+    assert note.title == "Nora Lind accepted your invitation"
+    nora = db.scalars(select(User).where(User.email == "nora@learnloop.dev")).one()
+    joined = db.scalars(select(Activity).where(Activity.verb == "member.joined", Activity.actor_id == nora.id)).one()
+    assert (joined.workspace_id, joined.summary) == (northwind, "joined as a learner")
+    again = client.post("/api/invitations/demo-invite-northwind-nora/accept", headers=headers)
+    assert again.status_code == 404
+
+
+def test_accept_requires_the_invited_email(client, sam):
+    response = client.post("/api/invitations/demo-invite-northwind-nora/accept", headers=sam)
+    assert response.status_code == 403
+    assert "different email" in response.json()["detail"]
+
+
+def test_accept_expired_revoked_or_signed_out(client, seeded):
+    tomas, _, _ = register(client, name="Tomas Berg", email="tomas@learnloop.dev")
+    assert client.post("/api/invitations/demo-invite-northwind-tomas/accept", headers=tomas).status_code == 410
+    ravi, _, _ = register(client, name="Ravi Shah", email="ravi@learnloop.dev")
+    assert client.post("/api/invitations/demo-invite-northwind-ravi/accept", headers=ravi).status_code == 404
+    assert client.post("/api/invitations/demo-invite-northwind-nora/accept").status_code == 401
+    assert client.post("/api/invitations/nope/accept", headers=ravi).status_code == 404
