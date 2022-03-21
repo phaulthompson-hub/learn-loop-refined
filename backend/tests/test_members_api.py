@@ -118,3 +118,44 @@ def test_ownership_transfer_then_stepping_down(client, maya, alex, northwind, db
     assert set_role(client, maya, northwind, alex_id, "admin").status_code == 403
 
 
+def test_owner_demotes_another_owner(client, alex, biology, db):
+    lena = user_id(db, "lena@learnloop.dev")
+    assert set_role(client, alex, biology, lena, "owner").status_code == 200
+    assert set_role(client, alex, biology, lena, "learner").status_code == 200
+    assert members(client, alex, biology)["counts"] == {"learner": 2, "instructor": 0, "admin": 0, "owner": 1}
+
+
+# ---------- Removing members ----------
+
+
+def test_admin_removes_a_learner(client, alex, northwind, db):
+    priya = user_id(db, "priya@learnloop.dev")
+    assert client.delete(f"/api/workspaces/{northwind}/members/{priya}", headers=alex).status_code == 204
+    assert members(client, alex, northwind)["total"] == 4
+    priya_headers = login(client, "priya@learnloop.dev")
+    assert client.get(f"/api/workspaces/{northwind}", headers=priya_headers).status_code == 404
+    me = client.get("/api/auth/me", headers=priya_headers).json()
+    assert [w["slug"] for w in me["workspaces"]] == ["biology-201-study-group"]
+    note = db.scalars(select(Notification).where(Notification.user_id == priya)).all()[-1]
+    assert note.title == "You were removed from Northwind Data Academy"
+    removal = db.scalars(select(Activity).where(Activity.verb == "member.removed", Activity.object_id == priya)).one()
+    assert removal.summary == "removed Priya Nair from the workspace"
+
+
+def test_removal_permissions(client, alex, northwind, db):
+    maya, jonas, alex_id = (user_id(db, e) for e in ("maya@learnloop.dev", "jonas@learnloop.dev", "demo@learnloop.dev"))
+    sam_headers = login(client, "sam@learnloop.dev")
+    assert client.delete(f"/api/workspaces/{northwind}/members/{jonas}", headers=sam_headers).status_code == 403
+    assert client.delete(f"/api/workspaces/{northwind}/members/{maya}", headers=alex).status_code == 403
+    assert client.delete(f"/api/workspaces/{northwind}/members/{alex_id}", headers=alex).status_code == 409
+    assert client.delete(f"/api/workspaces/{northwind}/members/99999", headers=alex).status_code == 404
+    assert members(client, alex, northwind)["total"] == 5
+
+
+def test_owner_removes_an_admin_and_their_last_workspace_is_forgotten(client, maya, northwind, db):
+    alex_id = user_id(db, "demo@learnloop.dev")
+    assert client.delete(f"/api/workspaces/{northwind}/members/{alex_id}", headers=maya).status_code == 204
+    alex_headers = login(client, "demo@learnloop.dev")
+    me = client.get("/api/auth/me", headers=alex_headers).json()
+    assert me["current_workspace_id"] == next(w["id"] for w in me["workspaces"])
+    assert all(w["id"] != northwind for w in me["workspaces"])
