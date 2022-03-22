@@ -247,3 +247,125 @@ def test_upload_markdown_file_creates_course_with_details(client, newcomer):
 # ---------- One course ----------
 
 
+def test_course_detail_combines_shared_content_with_my_progress(client, alex, ml_course):
+    body = detail(client, alex, ml_course["id"])
+    assert body["concept_count"] == len(body["concepts"]) == 6
+    assert body["source_count"] == 1
+    assert body["sources"][0]["name"] == "ml-foundations.txt"
+    assert body["sources"][0]["words"] > 150
+    assert "Gradient Descent" in [c["name"] for c in body["concepts"]]
+    assert body["recommendation"]["reason"]
+    levels = {c["level"] for c in body["concepts"]}
+    assert levels <= {"needs review", "learning", "proficient", "mastered"}
+
+
+def test_editor_updates_details_and_tags(client, maya, ml_course):
+    response = client.patch(
+        f"/api/courses/{ml_course['id']}",
+        json={"title": "  ML Foundations ", "tags": ["ML", "Core", "ml"], "difficulty": "intermediate"},
+        headers=maya,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["title"], body["tags"], body["difficulty"]) == ("ML Foundations", ["ml", "core"], "intermediate")
+    assert body["updated_at"] == NOW
+
+
+def test_archive_and_restore_move_the_course_between_tabs(client, maya, alex, ml_course, northwind, db):
+    course_id = ml_course["id"]
+    assert client.patch(f"/api/courses/{course_id}", json={"status": "archived"}, headers=maya).status_code == 200
+    page = catalogue(client, alex, northwind)
+    assert "Introduction to Machine Learning" not in titles(page)
+    assert page["facets"]["statuses"]["archived"] == 1
+    assert titles(catalogue(client, alex, northwind, status="archived")) == ["Introduction to Machine Learning"]
+    assert client.patch(f"/api/courses/{course_id}", json={"status": "active"}, headers=maya).status_code == 200
+    verbs = db.scalars(select(Activity.verb).where(Activity.object_id == course_id)).all()
+    assert {"course.archived", "course.restored"} <= set(verbs)
+
+
+def test_owner_deletes_course_and_everyones_progress_with_it(client, maya, alex, ml_course, db):
+    concept_ids = [c["id"] for c in detail(client, alex, ml_course["id"])["concepts"]]
+    assert client.delete(f"/api/courses/{ml_course['id']}", headers=maya).status_code == 204
+    assert client.get(f"/api/courses/{ml_course['id']}", headers=alex).status_code == 404
+    left = db.scalars(select(ConceptProgress).where(ConceptProgress.concept_id.in_(concept_ids))).all()
+    assert left == []
+
+
+# ---------- Enrolment ----------
+
+
+def test_pin_enrols_and_moves_the_course_to_the_top(client, sam, northwind):
+    stats = find_course(client, sam, northwind, "Statistics Fundamentals")
+    assert stats["enrolled"] is False
+    response = client.put(f"/api/courses/{stats['id']}/enrollment", json={"pinned": True}, headers=sam)
+    assert response.status_code == 200
+    assert (response.json()["enrolled"], response.json()["pinned"]) == (True, True)
+    assert titles(catalogue(client, sam, northwind, sort="title"))[0] == "Statistics Fundamentals"
+    assert client.delete(f"/api/courses/{stats['id']}/enrollment", headers=sam).status_code == 204
+    assert find_course(client, sam, northwind, "Statistics Fundamentals")["enrolled"] is False
+
+
+def test_opening_a_course_records_last_opened(client, sam, northwind):
+    nn = find_course(client, sam, northwind, "Neural Networks in Practice")
+    assert client.post(f"/api/courses/{nn['id']}/opened", headers=sam).status_code == 204
+    summary = client.get(f"/api/courses/{nn['id']}/summary", headers=sam).json()
+    assert summary["last_opened_at"] == NOW
+    assert summary["enrolled"] is True
+
+
+# ---------- Sources and concepts ----------
+
+
+def test_adding_material_appends_new_concepts_to_the_chain(client, newcomer):
+    headers, workspace = newcomer
+    course = create(client, headers, workspace).json()
+    response = client.post(
+        f"/api/courses/{course['id']}/sources", json={"name": "memo.md", "text": EXTRA}, headers=headers
+    )
+    assert response.status_code == 201
+    assert response.json()["words"] == len(EXTRA.split())
+    updated = detail(client, headers, course["id"])
+    assert updated["source_count"] == 2
+    names = [c["name"] for c in updated["concepts"]]
+    assert "Dynamic Programming" in names
+    assert len(names) == len({n.lower() for n in names})
+    first_new = updated["concepts"][len(course["concepts"])]
+    assert first_new["prerequisite_id"] == course["concepts"][-1]["id"]
+
+
+def test_source_reader_returns_the_full_text(client, alex, ml_course):
+    source = detail(client, alex, ml_course["id"])["sources"][0]
+    body = client.get(f"/api/courses/{ml_course['id']}/sources/{source['id']}", headers=alex).json()
+    assert body["content"].startswith("Machine learning is the study of algorithms")
+    assert body["words"] == len(body["content"].split())
+    assert body["characters"] == len(body["content"])
+    assert body["course_id"] == ml_course["id"]
+
+
+def test_removing_sources_keeps_at_least_one(client, newcomer):
+    headers, workspace = newcomer
+    course = create(client, headers, workspace).json()
+    added = client.post(f"/api/courses/{course['id']}/sources", json={"text": EXTRA}, headers=headers).json()
+    assert client.delete(f"/api/courses/{course['id']}/sources/{added['id']}", headers=headers).status_code == 204
+    only = course["sources"][0]["id"]
+    response = client.delete(f"/api/courses/{course['id']}/sources/{only}", headers=headers)
+    assert response.status_code == 409
+    assert "at least one source" in response.json()["detail"]
+    assert detail(client, headers, course["id"])["source_count"] == 1
+
+
+def test_editor_renames_a_concept_and_rewrites_its_summary(client, jonas, ml_course):
+    concept = detail(client, jonas, ml_course["id"])["concepts"][1]
+    response = client.patch(
+        f"/api/courses/{ml_course['id']}/concepts/{concept['id']}",
+        json={"name": " Model Performance ", "summary": "How well a model does on data it has not seen before."},
+        headers=jonas,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["name"] == "Model Performance"
+    quiz = client.get(f"/api/courses/{ml_course['id']}/quiz", params={"count": 10}, headers=jonas).json()
+    question = next(q for q in quiz if q["concept_id"] == concept["id"])
+    assert question["prompt"] == "Which statement best explains Model Performance?"
+    assert "How well a model does on data it has not seen before." in question["options"]
+
+
