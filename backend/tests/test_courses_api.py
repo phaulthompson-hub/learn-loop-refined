@@ -369,3 +369,123 @@ def test_editor_renames_a_concept_and_rewrites_its_summary(client, jonas, ml_cou
     assert "How well a model does on data it has not seen before." in question["options"]
 
 
+def test_concept_names_stay_unique_within_a_course(client, maya, ml_course):
+    concepts = detail(client, maya, ml_course["id"])["concepts"]
+    response = client.patch(
+        f"/api/courses/{ml_course['id']}/concepts/{concepts[0]['id']}",
+        json={"name": concepts[1]["name"].upper()},
+        headers=maya,
+    )
+    assert response.status_code == 422
+    assert "already called" in response.json()["detail"]
+
+
+def test_reordering_concepts_rebuilds_the_prerequisite_chain(client, maya, sam, ml_course):
+    original = detail(client, maya, ml_course["id"])["concepts"]
+    reversed_ids = [c["id"] for c in reversed(original)]
+    response = client.put(
+        f"/api/courses/{ml_course['id']}/concepts/order", json={"concept_ids": reversed_ids}, headers=maya
+    )
+    assert response.status_code == 200, response.text
+    assert [c["id"] for c in response.json()] == reversed_ids
+    seen_by_sam = detail(client, sam, ml_course["id"])["concepts"]
+    assert [c["id"] for c in seen_by_sam] == reversed_ids
+    assert [c["order_index"] for c in seen_by_sam] == list(range(6))
+    assert seen_by_sam[0]["prerequisite_id"] is None
+    for previous, current in zip(seen_by_sam, seen_by_sam[1:], strict=False):
+        assert current["prerequisite_id"] == previous["id"]
+
+
+# ---------- Practice ----------
+
+
+def test_quiz_length_follows_the_count_parameter(client, alex, ml_course):
+    quiz = client.get(f"/api/courses/{ml_course['id']}/quiz", params={"count": 3}, headers=alex).json()
+    assert len(quiz) == 3
+    assert all(len(q["options"]) == 4 and len(set(q["options"])) == 4 for q in quiz)
+
+
+def test_quiz_targets_my_weakest_concepts(client, alex, sam, ml_course):
+    def weakest(headers):
+        concepts = sorted(detail(client, headers, ml_course["id"])["concepts"], key=lambda c: c["mastery"])
+        return concepts[0]["id"]
+
+    for headers in (alex, sam):
+        quiz = client.get(f"/api/courses/{ml_course['id']}/quiz", params={"count": 4}, headers=headers).json()
+        assert quiz[0]["concept_id"] == weakest(headers)
+
+
+def test_correct_answer_raises_mastery_and_is_persisted(client, newcomer):
+    headers, workspace = newcomer
+    course = create(client, headers, workspace).json()
+    question = client.get(f"/api/courses/{course['id']}/quiz", headers=headers).json()[0]
+    result = answer(client, headers, course["id"], question, correct_index(question, course)).json()
+    assert (result["correct"], result["previous_mastery"], result["mastery"]) == (True, 35.0, 53.2)
+    stored = next(c for c in detail(client, headers, course["id"])["concepts"] if c["id"] == question["concept_id"])
+    assert stored["mastery"] == 53.2
+
+
+def test_wrong_answer_lowers_mastery_and_reveals_the_correct_option(client, newcomer):
+    headers, workspace = newcomer
+    course = create(client, headers, workspace).json()
+    question = client.get(f"/api/courses/{course['id']}/quiz", headers=headers).json()[0]
+    right = correct_index(question, course)
+    result = answer(client, headers, course["id"], question, (right + 1) % 4).json()
+    assert (result["correct"], result["correct_index"], result["mastery"]) == (False, right, 25.2)
+
+
+def test_answers_only_change_the_answering_learners_mastery(client, alex, sam, ml_course):
+    before_sam = detail(client, sam, ml_course["id"])
+    before_alex = detail(client, alex, ml_course["id"])
+    target = before_alex["concepts"][0]
+    question = question_for(client, alex, ml_course["id"], target["id"])
+    result = answer(client, alex, ml_course["id"], question, correct_index(question, before_alex)).json()
+    assert result["previous_mastery"] == target["mastery"]
+    assert result["mastery"] > target["mastery"]
+    after_sam = detail(client, sam, ml_course["id"])
+    assert [c["mastery"] for c in after_sam["concepts"]] == [c["mastery"] for c in before_sam["concepts"]]
+    assert after_sam["attempts"] == before_sam["attempts"]
+    assert detail(client, alex, ml_course["id"])["attempts"] == before_alex["attempts"] + 1
+
+
+def test_attempts_are_newest_first_and_personal(client, alex, sam, ml_course):
+    mine = client.get(f"/api/courses/{ml_course['id']}/attempts", params={"limit": 50}, headers=alex).json()
+    theirs = client.get(f"/api/courses/{ml_course['id']}/attempts", params={"limit": 50}, headers=sam).json()
+    assert len(mine) == 31 and len(theirs) == 9
+    assert [a["id"] for a in mine] == sorted((a["id"] for a in mine), reverse=True)
+    assert not {a["id"] for a in mine} & {a["id"] for a in theirs}
+    assert len(client.get(f"/api/courses/{ml_course['id']}/attempts", headers=alex).json()) == 10
+
+
+def test_recommendation_moves_on_after_the_foundation_is_unlocked(client, newcomer):
+    headers, workspace = newcomer
+    course = create(client, headers, workspace).json()
+    first, second = course["concepts"][0], course["concepts"][1]
+    assert (
+        client.get(f"/api/courses/{course['id']}/recommendation", headers=headers).json()["concept_id"] == first["id"]
+    )
+    question = question_for(client, headers, course["id"], first["id"])
+    result = None
+    for _ in range(2):
+        result = answer(client, headers, course["id"], question, correct_index(question, course)).json()
+    assert result["mastery"] == 66.3
+    assert result["recommendation"]["concept_id"] == second["id"]
+    refreshed = detail(client, headers, course["id"])
+    assert refreshed["concepts"][1]["unlocked"] is True
+    assert refreshed["recommendation"]["concept_id"] == second["id"]
+
+
+def test_mastering_a_concept_notifies_the_learner(client, newcomer, db):
+    headers, workspace = newcomer
+    course = create(client, headers, workspace).json()
+    concept = course["concepts"][0]
+    question = question_for(client, headers, course["id"], concept["id"])
+    results = [
+        answer(client, headers, course["id"], question, correct_index(question, course)).json() for _ in range(5)
+    ]
+    assert [r["mastery"] for r in results] == [53.2, 66.3, 75.7, 82.5, 87.4]
+    titles_ = db.scalars(select(Notification.title).where(Notification.kind == "mastery")).all()
+    assert titles_ == [f"You mastered {concept['name']}"]
+    assert db.scalars(select(Activity).where(Activity.verb == "concept.mastered")).first() is not None
+
+
