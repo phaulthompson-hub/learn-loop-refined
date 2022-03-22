@@ -489,3 +489,116 @@ def test_mastering_a_concept_notifies_the_learner(client, newcomer, db):
     assert db.scalars(select(Activity).where(Activity.verb == "concept.mastered")).first() is not None
 
 
+def test_tutor_answers_from_the_course_material(client, alex, ml_course):
+    response = client.post(
+        f"/api/courses/{ml_course['id']}/tutor", json={"message": "How does gradient descent work?"}, headers=alex
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["citations"] == ["ml-foundations.txt"]
+    assert "gradient descent" in body["answer"].lower()
+    assert body["follow_up"].startswith("Can you explain")
+
+
+# ---------- Activity and progress reset ----------
+
+
+def test_activity_counts_my_answers_per_day(client, alex, sam, ml_course):
+    body = client.get(f"/api/courses/{ml_course['id']}/activity", headers=alex).json()
+    assert len(body["days"]) == 14
+    assert (body["days"][0]["date"], body["days"][-1]["date"]) == ("2022-03-01", "2022-03-14")
+    by_day = {d["date"]: (d["answers"], d["correct"]) for d in body["days"]}
+    assert by_day["2022-03-13"] == (3, 3)
+    assert by_day["2022-03-12"] == (3, 2)
+    assert by_day["2022-03-02"] == (4, 2)
+    assert by_day["2022-03-14"] == (0, 0)
+    assert (body["answers"], body["correct"], body["active_days"]) == (22, 16, 7)
+    assert body["accuracy"] == 72.7
+    sams = client.get(f"/api/courses/{ml_course['id']}/activity", headers=sam).json()
+    assert (sams["answers"], sams["active_days"]) == (6, 2)
+
+
+def test_activity_window_can_be_widened(client, alex, ml_course):
+    body = client.get(f"/api/courses/{ml_course['id']}/activity", params={"days": 30}, headers=alex).json()
+    assert len(body["days"]) == 30
+    assert body["answers"] == 31
+
+
+def test_reset_progress_clears_only_my_course_progress(client, alex, sam, ml_course, northwind, db):
+    before_sam = detail(client, sam, ml_course["id"])
+    response = client.post(f"/api/courses/{ml_course['id']}/reset-progress", headers=alex)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["attempts_cleared"], body["concepts_cleared"]) == (31, 6)
+    course = body["course"]
+    assert all(c["mastery"] == 35.0 for c in course["concepts"])
+    assert (course["attempts"], course["accuracy"]) == (0, 0.0)
+    assert client.get(f"/api/courses/{ml_course['id']}/attempts", headers=alex).json() == []
+    assert detail(client, sam, ml_course["id"])["concepts"] == before_sam["concepts"]
+    stats = find_course(client, alex, northwind, "Statistics Fundamentals")
+    assert stats["attempts"] == 11
+    alex_id = db.scalars(select(User.id).where(User.email == "demo@learnloop.dev")).one()
+    entry = db.scalars(select(Activity).where(Activity.verb == "course.progress_reset")).one()
+    assert (entry.actor_id, entry.object_id) == (alex_id, ml_course["id"])
+
+
+# ---------- Learners ----------
+
+
+def test_owner_sees_every_learners_progress(client, maya, ml_course):
+    response = client.get(f"/api/courses/{ml_course['id']}/learners", headers=maya)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    people = {item["name"]: item for item in body["items"]}
+    assert set(people) == {"Alex Rivera", "Sam Okafor", "Priya Nair", "Maya Chen"}
+    assert body["total"] == 4
+    assert [c["name"] for c in body["concepts"]][-1] == "Gradient Descent"
+    alex = people["Alex Rivera"]
+    assert (alex["attempts"], alex["role"], alex["enrolled"]) == (31, "admin", True)
+    assert len(alex["concepts"]) == 6
+    # fsum: exact float summation, so the expected rounding does not depend on the Python version.
+    assert alex["mastery"] == round(math.fsum(c["mastery"] for c in alex["concepts"]) / 6, 1)
+    maya_row = people["Maya Chen"]
+    assert (maya_row["attempts"], maya_row["mastery"], maya_row["accuracy"]) == (0, 35.0, 0.0)
+    assert people["Priya Nair"]["attempts"] == 2 and people["Priya Nair"]["accuracy"] == 50.0
+    masteries = [item["mastery"] for item in body["items"]]
+    assert masteries == sorted(masteries, reverse=True)
+    assert body["active_last_7_days"] == 3
+    assert body["average_mastery"] == round(sum(masteries) / 4, 1)
+
+
+def test_learner_rows_match_each_learners_own_view(client, maya, sam, ml_course):
+    rows = client.get(f"/api/courses/{ml_course['id']}/learners", headers=maya).json()["items"]
+    sam_row = next(r for r in rows if r["name"] == "Sam Okafor")
+    sams_view = detail(client, sam, ml_course["id"])
+    assert sam_row["mastery"] == sams_view["mastery"]
+    assert sam_row["mastered_concepts"] == sams_view["mastered_concepts"]
+    assert sam_row["accuracy"] == sams_view["accuracy"]
+    assert [c["mastery"] for c in sam_row["concepts"]] == [c["mastery"] for c in sams_view["concepts"]]
+
+
+# ---------- Duplicating ----------
+
+
+def test_duplicate_copies_content_as_a_draft_without_progress(client, alex, maya, ml_course, northwind):
+    original = detail(client, alex, ml_course["id"])
+    response = client.post(f"/api/courses/{ml_course['id']}/duplicate", headers=alex)
+    assert response.status_code == 201, response.text
+    copy = response.json()
+    assert copy["title"] == "Copy of Introduction to Machine Learning"
+    assert (copy["status"], copy["learners"], copy["attempts"]) == ("draft", 1, 0)
+    assert copy["owner_id"] != original["owner_id"]
+    assert [c["name"] for c in copy["concepts"]] == [c["name"] for c in original["concepts"]]
+    assert [c["summary"] for c in copy["concepts"]] == [c["summary"] for c in original["concepts"]]
+    assert not {c["id"] for c in copy["concepts"]} & {c["id"] for c in original["concepts"]}
+    assert all(c["mastery"] == 35.0 for c in copy["concepts"])
+    for previous, current in zip(copy["concepts"], copy["concepts"][1:], strict=False):
+        assert current["prerequisite_id"] == previous["id"]
+    assert [s["name"] for s in copy["sources"]] == ["ml-foundations.txt"]
+    assert "Copy of Introduction to Machine Learning" in titles(catalogue(client, maya, northwind, status="draft"))
+
+
+def test_duplicate_accepts_a_new_title(client, maya, ml_course):
+    response = client.post(f"/api/courses/{ml_course['id']}/duplicate", json={"title": "ML cohort 2"}, headers=maya)
+    assert response.status_code == 201
+    assert response.json()["title"] == "ML cohort 2"
