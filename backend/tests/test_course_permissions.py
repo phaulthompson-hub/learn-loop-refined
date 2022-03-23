@@ -130,3 +130,44 @@ def test_learners_cannot_edit_course_content(client, sam, ml_course):
     assert client.get(f"/api/courses/{course_id}", headers=sam).json()["title"] == "Introduction to Machine Learning"
 
 
+def test_instructors_can_edit_courses_they_do_not_own(client, jonas, ml_course):
+    response = client.patch(f"/api/courses/{ml_course['id']}", json={"subject": "AI"}, headers=jonas)
+    assert response.status_code == 200
+    assert response.json()["subject"] == "AI"
+
+
+def test_only_owners_and_admins_delete(client, jonas, alex, ml_course, northwind):
+    assert client.delete(f"/api/courses/{ml_course['id']}", headers=jonas).status_code == 403
+    sql = find_course(client, jonas, northwind, "Relational Databases & SQL")
+    assert client.delete(f"/api/courses/{sql['id']}", headers=jonas).status_code == 204
+    assert client.delete(f"/api/courses/{ml_course['id']}", headers=alex).status_code == 204
+
+
+# ---------- Learner-level actions ----------
+
+
+def test_learners_can_practise_pin_and_reset_their_own_progress(client, sam, ml_course):
+    course_id = ml_course["id"]
+    assert client.put(f"/api/courses/{course_id}/enrollment", json={"pinned": True}, headers=sam).status_code == 200
+    assert client.get(f"/api/courses/{course_id}/quiz", headers=sam).status_code == 200
+    assert (
+        client.post(f"/api/courses/{course_id}/tutor", json={"message": "What is a model?"}, headers=sam).status_code
+        == 200
+    )
+    reset = client.post(f"/api/courses/{course_id}/reset-progress", headers=sam)
+    assert reset.status_code == 200
+    assert reset.json()["attempts_cleared"] == 9
+
+
+def test_learners_page_needs_owner_or_instructor(client, sam, priya, jonas, maya, ml_course):
+    path = f"/api/courses/{ml_course['id']}/learners"
+    assert client.get(path, headers=sam).status_code == 403
+    assert client.get(path, headers=priya).status_code == 403
+    assert client.get(path, headers=jonas).status_code == 200
+    assert client.get(path, headers=maya).status_code == 200
+
+
+def test_learners_page_lists_only_workspace_members(client, alex, biology):
+    cells = find_course(client, alex, biology, "Cell Biology")
+    body = client.get(f"/api/courses/{cells['id']}/learners", headers=alex).json()
+    assert {item["name"] for item in body["items"]} == {"Alex Rivera", "Priya Nair", "Lena Kovacs"}
