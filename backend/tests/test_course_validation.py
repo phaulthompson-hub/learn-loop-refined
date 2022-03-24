@@ -250,3 +250,66 @@ def test_answer_index_must_be_between_0_and_3(client, space, course, selected):
     assert response.status_code == 422
 
 
+def test_answer_with_mismatched_question_and_concept_is_rejected(client, space, course):
+    headers, _ = space
+    first, second = course["concepts"][0], course["concepts"][1]
+    response = client.post(
+        f"/api/courses/{course['id']}/answers",
+        json={"question_id": f"{course['id']}:{first['id']}", "concept_id": second["id"], "selected": 0},
+        headers=headers,
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid question"
+
+
+def test_answer_for_concept_of_another_course_is_rejected(client, space, course):
+    headers, _ = space
+    other = post_course(client, space, {"title": "Sorting 2", "text": LONG_TEXT}).json()
+    foreign = other["concepts"][0]
+    response = client.post(
+        f"/api/courses/{course['id']}/answers",
+        json={"question_id": f"{course['id']}:{foreign['id']}", "concept_id": foreign["id"], "selected": 0},
+        headers=headers,
+    )
+    assert response.status_code == 400
+
+
+def test_invalid_answer_does_not_change_mastery(client, space, course):
+    headers, _ = space
+    concept = course["concepts"][0]
+    client.post(
+        f"/api/courses/{course['id']}/answers",
+        json={"question_id": "garbage-id", "concept_id": concept["id"], "selected": 0},
+        headers=headers,
+    )
+    reloaded = client.get(f"/api/courses/{course['id']}", headers=headers).json()
+    assert reloaded["concepts"][0]["mastery"] == 35.0
+    assert client.get(f"/api/courses/{course['id']}/attempts", headers=headers).json() == []
+
+
+@pytest.mark.parametrize("count", [0, 11])
+def test_quiz_count_is_bounded(client, space, course, count):
+    headers, _ = space
+    assert client.get(f"/api/courses/{course['id']}/quiz", params={"count": count}, headers=headers).status_code == 422
+
+
+@pytest.mark.parametrize("days", [6, 61])
+def test_activity_window_is_bounded(client, space, course, days):
+    headers, _ = space
+    response = client.get(f"/api/courses/{course['id']}/activity", params={"days": days}, headers=headers)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("message", ["", " ", "a", "   b   ", "x" * 2001])
+def test_tutor_rejects_blank_or_oversized_messages(client, space, course, message):
+    headers, _ = space
+    response = client.post(f"/api/courses/{course['id']}/tutor", json={"message": message}, headers=headers)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "params", [{"status": "deleted"}, {"difficulty": "hard"}, {"page": 0}, {"page_size": 101}, {"q": "x" * 101}]
+)
+def test_catalogue_query_parameters_are_validated(client, space, params):
+    headers, workspace = space
+    assert client.get(f"/api/workspaces/{workspace}/courses", params=params, headers=headers).status_code == 422
