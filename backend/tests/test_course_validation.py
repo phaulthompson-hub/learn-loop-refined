@@ -123,3 +123,130 @@ def test_upload_rejects_bad_details_with_readable_messages(client, space, fields
 # ---------- Unknown ids ----------
 
 
+def test_unknown_course_returns_404_everywhere(client, space):
+    headers, _ = space
+    for path in (
+        "/api/courses/999",
+        "/api/courses/999/quiz",
+        "/api/courses/999/summary",
+        "/api/courses/999/attempts",
+        "/api/courses/999/recommendation",
+        "/api/courses/999/sources/1",
+        "/api/courses/999/learners",
+        "/api/courses/999/activity",
+    ):
+        assert client.get(path, headers=headers).status_code == 404, path
+    assert client.delete("/api/courses/999", headers=headers).status_code == 404
+    assert client.patch("/api/courses/999", json={"title": "New"}, headers=headers).status_code == 404
+    assert client.post("/api/courses/999/tutor", json={"message": "hello"}, headers=headers).status_code == 404
+    assert client.post("/api/courses/999/duplicate", headers=headers).status_code == 404
+    assert client.post("/api/courses/999/reset-progress", headers=headers).status_code == 404
+    answer = {"question_id": "999:1", "concept_id": 1, "selected": 0}
+    assert client.post("/api/courses/999/answers", json=answer, headers=headers).status_code == 404
+
+
+def test_unknown_concept_and_source_return_404(client, space, course):
+    headers, _ = space
+    base = f"/api/courses/{course['id']}"
+    assert client.patch(f"{base}/concepts/99999", json={"name": "Nope"}, headers=headers).status_code == 404
+    assert client.delete(f"{base}/sources/99999", headers=headers).status_code == 404
+    assert client.get(f"{base}/sources/99999", headers=headers).status_code == 404
+
+
+def test_source_of_another_course_is_not_exposed(client, space, course):
+    other = post_course(client, space, {"title": "Sorting 2", "text": LONG_TEXT}).json()
+    headers, _ = space
+    source_id = other["sources"][0]["id"]
+    assert client.get(f"/api/courses/{course['id']}/sources/{source_id}", headers=headers).status_code == 404
+    assert client.delete(f"/api/courses/{course['id']}/sources/{source_id}", headers=headers).status_code == 404
+
+
+# ---------- Updating ----------
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"title": None},
+        {"status": None},
+        {"title": "A"},
+        {"status": "deleted"},
+        {"difficulty": "hard"},
+        {"color": "#zzzzzz"},
+        {"tags": None},
+    ],
+)
+def test_course_update_rejects_empty_null_or_invalid_fields(client, space, course, payload):
+    headers, _ = space
+    response = client.patch(f"/api/courses/{course['id']}", json=payload, headers=headers)
+    assert response.status_code == 422
+    unchanged = client.get(f"/api/courses/{course['id']}", headers=headers).json()
+    assert (unchanged["title"], unchanged["status"]) == ("Sorting", "active")
+
+
+def test_empty_update_explains_itself(client, space, course):
+    headers, _ = space
+    response = client.patch(f"/api/courses/{course['id']}", json={}, headers=headers)
+    assert "Send at least one field to change" in response.json()["detail"][0]["msg"]
+
+
+def test_description_may_be_cleared(client, space, course):
+    headers, _ = space
+    response = client.patch(f"/api/courses/{course['id']}", json={"description": "   "}, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["description"] == ""
+
+
+@pytest.mark.parametrize("payload", [{}, {"name": "X"}, {"summary": "too short"}, {"name": None}, {"name": "y" * 121}])
+def test_concept_update_is_validated(client, space, course, payload):
+    headers, _ = space
+    concept = course["concepts"][0]
+    response = client.patch(f"/api/courses/{course['id']}/concepts/{concept['id']}", json=payload, headers=headers)
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("mutate", ["missing", "repeated", "foreign", "empty"])
+def test_concept_order_must_be_a_permutation(client, space, course, mutate):
+    headers, _ = space
+    ids = [c["id"] for c in course["concepts"]]
+    order = {
+        "missing": ids[1:],
+        "repeated": ids + [ids[0]],
+        "foreign": ids[:-1] + [99999],
+        "empty": [],
+    }[mutate]
+    response = client.put(f"/api/courses/{course['id']}/concepts/order", json={"concept_ids": order}, headers=headers)
+    assert response.status_code == 422
+    after = client.get(f"/api/courses/{course['id']}", headers=headers).json()
+    assert [c["id"] for c in after["concepts"]] == ids
+
+
+def test_duplicate_title_is_validated(client, space, course):
+    headers, _ = space
+    response = client.post(f"/api/courses/{course['id']}/duplicate", json={"title": " "}, headers=headers)
+    assert response.status_code == 422
+
+
+def test_added_source_needs_enough_text(client, space, course):
+    headers, _ = space
+    response = client.post(f"/api/courses/{course['id']}/sources", json={"text": "too short"}, headers=headers)
+    assert response.status_code == 422
+    assert client.get(f"/api/courses/{course['id']}", headers=headers).json()["source_count"] == 1
+
+
+# ---------- Practice ----------
+
+
+@pytest.mark.parametrize("selected", [-1, 4, 10])
+def test_answer_index_must_be_between_0_and_3(client, space, course, selected):
+    headers, _ = space
+    concept = course["concepts"][0]
+    response = client.post(
+        f"/api/courses/{course['id']}/answers",
+        json={"question_id": f"{course['id']}:{concept['id']}", "concept_id": concept["id"], "selected": selected},
+        headers=headers,
+    )
+    assert response.status_code == 422
+
+
