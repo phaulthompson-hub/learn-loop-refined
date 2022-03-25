@@ -254,3 +254,124 @@ def test_card_validation(client, alex, ml_deck):
     assert duplicate.status_code == 409
 
 
+def test_cards_can_only_link_concepts_of_their_course(client, alex, northwind, ml_deck):
+    stats = find_course(client, alex, northwind, "Statistics Fundamentals")
+    foreign = client.get(f"/api/courses/{stats['id']}", headers=alex).json()["concepts"][0]["id"]
+    response = client.post(
+        f"/api/decks/{ml_deck['id']}/cards", json={"front": "Q", "back": "A", "concept_id": foreign}, headers=alex
+    )
+    assert response.status_code == 422
+
+
+def test_learners_can_read_but_not_edit_cards(client, sam, ml_deck):
+    cards = client.get(f"/api/decks/{ml_deck['id']}/cards", headers=sam)
+    assert cards.status_code == 200
+    card_id = cards.json()["items"][0]["id"]
+    assert (
+        client.post(f"/api/decks/{ml_deck['id']}/cards", json={"front": "Q", "back": "A"}, headers=sam).status_code
+        == 403
+    )
+    assert client.patch(f"/api/cards/{card_id}", json={"back": "x"}, headers=sam).status_code == 403
+    assert client.delete(f"/api/cards/{card_id}", headers=sam).status_code == 403
+
+
+# ---------- Import and generation ----------
+
+
+def test_import_dry_run_reports_without_creating(client, alex, ml_deck):
+    text = "Bias :: Systematic error\nno separator\nDefine recall. :: duplicate\n# comment"
+    response = client.post(
+        f"/api/decks/{ml_deck['id']}/cards/import", json={"text": text, "dry_run": True}, headers=alex
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created"] == 0
+    assert [a["front"] for a in body["accepted"]] == ["Bias"]
+    assert [(r["line"], r["reason"]) for r in body["rejected"]] == [
+        (2, "Missing the ' :: ' separator between front and back"),
+        (3, "A card with this front already exists"),
+    ]
+    assert client.get(f"/api/decks/{ml_deck['id']}", headers=alex).json()["card_count"] == 16
+
+
+def test_import_creates_accepted_cards_in_order(client, own_deck):
+    headers, _, deck = own_deck
+    body = import_cards(client, headers, deck["id"], 3)
+    assert body["created"] == 3
+    cards = client.get(f"/api/decks/{deck['id']}/cards", headers=headers).json()["items"]
+    assert [(c["front"], c["position"]) for c in cards] == [("Card 1", 0), ("Card 2", 1), ("Card 3", 2)]
+
+
+def test_import_limits(client, own_deck):
+    headers, _, deck = own_deck
+    url = f"/api/decks/{deck['id']}/cards/import"
+    assert client.post(url, json={"text": "# only a comment\n\n"}, headers=headers).status_code == 422
+    too_many = "\n".join(f"q{n} :: a" for n in range(501))
+    assert client.post(url, json={"text": too_many}, headers=headers).status_code == 422
+
+
+def test_generate_from_concepts_skips_covered_concepts(client, own_deck):
+    headers, _, deck = own_deck
+    detail = client.get(f"/api/decks/{deck['id']}", headers=headers).json()
+    concepts = detail["concepts"]
+    assert concepts
+    first = client.post(f"/api/decks/{deck['id']}/cards/generate", headers=headers).json()
+    assert len(first["created"]) == len(concepts)
+    assert first["skipped"] == 0
+    card = first["created"][0]
+    assert card["front"] == f"What should you remember about {concepts[0]['name']}?"
+    assert card["back"] == concepts[0]["summary"]
+    assert card["concept_id"] == concepts[0]["id"]
+    again = client.post(f"/api/decks/{deck['id']}/cards/generate", headers=headers).json()
+    assert again == {"created": [], "skipped": len(concepts)}
+
+
+def test_generate_skips_concepts_with_hand_written_cards(client, alex, ml_deck):
+    concepts = client.get(f"/api/decks/{ml_deck['id']}", headers=alex).json()["concepts"]
+    uncovered = [c["id"] for c in concepts if c["card_count"] == 0]
+    body = client.post(f"/api/decks/{ml_deck['id']}/cards/generate", headers=alex).json()
+    assert [c["concept_id"] for c in body["created"]] == uncovered
+    assert body["skipped"] == len(concepts) - len(uncovered) > 0
+    assert [c["position"] for c in body["created"]] == list(range(16, 16 + len(uncovered)))
+
+
+# ---------- Review queue ----------
+
+
+def test_queue_lists_due_cards_by_due_date_then_new_cards(client, alex, northwind):
+    response = client.get(f"/api/workspaces/{northwind}/review/queue", headers=alex)
+    assert response.status_code == 200
+    queue = response.json()
+    due = [c for c in queue["cards"] if c["status"] != "new"]
+    new = [c for c in queue["cards"] if c["status"] == "new"]
+    assert queue["cards"] == due + new
+    assert len(due) == queue["due"]
+    assert len(new) == min(queue["new"], queue["new_allowance"])
+    assert [c["due_at"] for c in due] == sorted(c["due_at"] for c in due)
+    assert all(datetime.fromisoformat(c["due_at"]) < datetime.fromisoformat(NOW) + timedelta(days=1) for c in due)
+    assert all(len(c["previews"]) == 4 for c in queue["cards"])
+    assert queue["next_due_at"] > NOW
+
+
+def test_queue_can_be_scoped_to_one_deck(client, alex, northwind):
+    sql_deck = deck_named(client, alex, northwind, "SQL & Relational Basics")
+    queue = client.get(
+        f"/api/workspaces/{northwind}/review/queue", params={"deck_id": sql_deck["id"]}, headers=alex
+    ).json()
+    assert {c["deck_id"] for c in queue["cards"]} == {sql_deck["id"]}
+    assert queue["due"] == sql_deck["due"]
+    fresh = [c for c in queue["cards"] if c["status"] == "new"]
+    assert len(fresh) == sql_deck["new"] > 0
+    assert [p["interval_days"] for p in fresh[0]["previews"]] == [0, 1, 1, 4]
+    assert [p["display"] for p in fresh[0]["previews"]] == ["10m", "1d", "1d", "4d"]
+
+
+def test_queue_respects_the_new_card_parameter_and_limit(client, alex, northwind):
+    url = f"/api/workspaces/{northwind}/review/queue"
+    no_new = client.get(url, params={"new": 0}, headers=alex).json()
+    assert all(c["status"] != "new" for c in no_new["cards"])
+    limited = client.get(url, params={"limit": 3}, headers=alex).json()
+    assert len(limited["cards"]) == 3
+    assert client.get(url, params={"new": DAILY_NEW_LIMIT + 1}, headers=alex).status_code == 422
+
+
