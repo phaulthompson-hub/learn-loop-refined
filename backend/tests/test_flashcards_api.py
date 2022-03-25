@@ -375,3 +375,130 @@ def test_queue_respects_the_new_card_parameter_and_limit(client, alex, northwind
     assert client.get(url, params={"new": DAILY_NEW_LIMIT + 1}, headers=alex).status_code == 422
 
 
+def test_queue_for_a_deck_in_another_workspace_is_not_found(client, alex, biology, ml_deck):
+    response = client.get(f"/api/workspaces/{biology}/review/queue", params={"deck_id": ml_deck["id"]}, headers=alex)
+    assert response.status_code == 404
+
+
+def test_daily_new_card_limit_applies_across_sessions(client, own_deck):
+    headers, workspace, deck = own_deck
+    import_cards(client, headers, deck["id"], DAILY_NEW_LIMIT + 5)
+    url = f"/api/workspaces/{workspace}/review/queue"
+    first = client.get(url, headers=headers).json()
+    assert len(first["cards"]) == DAILY_NEW_LIMIT
+    for card in first["cards"][:15]:
+        assert client.post(f"/api/cards/{card['id']}/review", json={"grade": 2}, headers=headers).status_code == 200
+    later = client.get(url, headers=headers).json()
+    assert later["new_allowance"] == DAILY_NEW_LIMIT - 15
+    assert [c["status"] for c in later["cards"]] == ["new"] * 5
+    assert later["new"] == 10
+
+
+# ---------- Grading ----------
+
+
+def test_grading_a_new_card_schedules_it_and_logs_the_review(client, own_deck, db):
+    headers, workspace, deck = own_deck
+    import_cards(client, headers, deck["id"], 2)
+    card = client.get(f"/api/workspaces/{workspace}/review/queue", headers=headers).json()["cards"][0]
+    response = client.post(f"/api/cards/{card['id']}/review", json={"grade": 2}, headers=headers)
+    assert response.status_code == 200
+    result = response.json()
+    assert (result["interval_before"], result["interval_days"], result["display"]) == (0, 1, "1d")
+    assert result["status"] == "young"
+    assert result["due_at"] == "2022-03-15T09:00:00"
+    log = db.scalars(select(ReviewLog).where(ReviewLog.card_id == card["id"])).one()
+    assert (log.grade, log.interval_after, log.ease_after) == (2, 1, 2.5)
+    # Graded "good" -> not due again today, so it leaves the queue.
+    queue = client.get(f"/api/workspaces/{workspace}/review/queue", headers=headers).json()
+    assert card["id"] not in [c["id"] for c in queue["cards"]]
+
+
+def test_again_brings_the_card_back_today(client, own_deck):
+    headers, workspace, deck = own_deck
+    import_cards(client, headers, deck["id"], 1)
+    card = client.get(f"/api/workspaces/{workspace}/review/queue", headers=headers).json()["cards"][0]
+    result = client.post(f"/api/cards/{card['id']}/review", json={"grade": 0}, headers=headers).json()
+    assert (result["interval_days"], result["display"], result["status"]) == (0, "10m", "learning")
+    queue = client.get(f"/api/workspaces/{workspace}/review/queue", headers=headers).json()
+    assert [c["id"] for c in queue["cards"]] == [card["id"]]
+    assert queue["cards"][0]["status"] == "learning"
+
+
+def test_grading_a_due_card_follows_the_scheduler(client, alex, northwind):
+    card = next(
+        c
+        for c in client.get(f"/api/workspaces/{northwind}/review/queue", headers=alex).json()["cards"]
+        if c["status"] == "young" and c["repetitions"] >= 2
+    )
+    preview = {p["grade"]: p["interval_days"] for p in card["previews"]}
+    result = client.post(f"/api/cards/{card['id']}/review", json={"grade": 3}, headers=alex).json()
+    assert result["interval_days"] == preview[3]
+    assert result["interval_before"] == card["interval_days"]
+    assert result["ease"] == pytest.approx(card["ease"] + 0.15)
+    assert result["repetitions"] == card["repetitions"] + 1
+
+
+@pytest.mark.parametrize("grade", [-1, 4, "good"])
+def test_invalid_grades_are_rejected(client, alex, ml_deck, grade):
+    card_id = client.get(f"/api/decks/{ml_deck['id']}/cards", headers=alex).json()["items"][0]["id"]
+    assert client.post(f"/api/cards/{card_id}/review", json={"grade": grade}, headers=alex).status_code == 422
+
+
+def test_non_members_cannot_review(client, alex, ml_deck, newcomer):
+    headers, _ = newcomer
+    card_id = client.get(f"/api/decks/{ml_deck['id']}/cards", headers=alex).json()["items"][0]["id"]
+    assert client.post(f"/api/cards/{card_id}/review", json={"grade": 2}, headers=headers).status_code == 404
+
+
+# ---------- Sessions and stats ----------
+
+
+def test_finishing_a_session_logs_study_time_and_activity(client, own_deck, db):
+    headers, workspace, deck = own_deck
+    import_cards(client, headers, deck["id"], 3)
+    for card in client.get(f"/api/workspaces/{workspace}/review/queue", headers=headers).json()["cards"]:
+        client.post(
+            f"/api/cards/{card['id']}/review", json={"grade": 0 if card["front"] == "Card 1" else 2}, headers=headers
+        )
+    response = client.post(
+        f"/api/workspaces/{workspace}/review/sessions",
+        json={"deck_id": deck["id"], "reviewed": 3, "again": 1, "duration_seconds": 150},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert (body["minutes"], body["reviewed"], body["accuracy"]) == (3, 3, 66.7)
+    log = db.get(StudyLog, body["study_log_id"])
+    assert (log.activity, log.minutes, log.course_id) == ("flashcards", 3, deck["course_id"])
+    assert log.note == "Reviewed 3 flashcards in Photosynthesis"
+    activity = db.scalars(select(Activity).where(Activity.verb == "flashcards.reviewed")).one()
+    assert activity.link == f"/decks/{deck['id']}"
+
+
+def test_session_counts_must_match_recorded_reviews(client, own_deck):
+    headers, workspace, deck = own_deck
+    url = f"/api/workspaces/{workspace}/review/sessions"
+    payload = {"reviewed": 2, "duration_seconds": 60}
+    assert client.post(url, json=payload, headers=headers).status_code == 422
+    import_cards(client, headers, deck["id"], 1)
+    card = client.get(f"/api/workspaces/{workspace}/review/queue", headers=headers).json()["cards"][0]
+    client.post(f"/api/cards/{card['id']}/review", json={"grade": 3}, headers=headers)
+    assert client.post(url, json=payload, headers=headers).status_code == 422
+    response = client.post(url, json={"reviewed": 1, "duration_seconds": 20}, headers=headers)
+    assert response.status_code == 201
+    assert response.json()["minutes"] == 1
+    assert response.json()["course_id"] == deck["course_id"]
+
+
+def test_session_minutes_are_capped(client, own_deck):
+    headers, workspace, deck = own_deck
+    import_cards(client, headers, deck["id"], 1)
+    card = client.get(f"/api/workspaces/{workspace}/review/queue", headers=headers).json()["cards"][0]
+    client.post(f"/api/cards/{card['id']}/review", json={"grade": 2}, headers=headers)
+    url = f"/api/workspaces/{workspace}/review/sessions"
+    assert client.post(url, json={"reviewed": 1, "duration_seconds": 5 * 3600}, headers=headers).status_code == 422
+    capped = client.post(url, json={"reviewed": 1, "duration_seconds": 4 * 3600}, headers=headers).json()
+    assert capped["minutes"] == 240
+
+
