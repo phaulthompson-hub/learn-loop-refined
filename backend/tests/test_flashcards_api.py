@@ -133,3 +133,124 @@ def test_admin_creates_a_deck_and_it_appears_in_the_feed(client, alex, northwind
     assert [a.link for a in feed] == [f"/decks/{deck['id']}"]
 
 
+def test_deck_names_are_unique_per_course(client, alex, northwind, ml_course):
+    response = client.post(
+        f"/api/workspaces/{northwind}/decks",
+        json={"course_id": ml_course["id"], "name": "ml essentials"},
+        headers=alex,
+    )
+    assert response.status_code == 409
+
+
+@pytest.mark.parametrize("payload", [{"name": "x"}, {"name": "   "}, {"name": "Valid", "description": "d" * 501}])
+def test_deck_validation(client, alex, northwind, ml_course, payload):
+    response = client.post(
+        f"/api/workspaces/{northwind}/decks", json={"course_id": ml_course["id"], **payload}, headers=alex
+    )
+    assert response.status_code == 422
+
+
+def test_learners_cannot_create_decks(client, sam, northwind, ml_course):
+    response = client.post(
+        f"/api/workspaces/{northwind}/decks", json={"course_id": ml_course["id"], "name": "Mine"}, headers=sam
+    )
+    assert response.status_code == 403
+
+
+def test_courses_from_another_workspace_are_not_found(client, alex, biology, ml_course):
+    response = client.post(
+        f"/api/workspaces/{biology}/decks", json={"course_id": ml_course["id"], "name": "Wrong place"}, headers=alex
+    )
+    assert response.status_code == 404
+
+
+def test_update_and_delete_deck(client, alex, sam, ml_deck, db):
+    assert client.patch(f"/api/decks/{ml_deck['id']}", json={"name": "Hacked"}, headers=sam).status_code == 403
+    response = client.patch(
+        f"/api/decks/{ml_deck['id']}", json={"name": "ML Core", "description": "Updated"}, headers=alex
+    )
+    assert response.status_code == 200
+    assert (response.json()["name"], response.json()["description"]) == ("ML Core", "Updated")
+
+    card_ids = [c["id"] for c in client.get(f"/api/decks/{ml_deck['id']}/cards", headers=alex).json()["items"]]
+    assert client.delete(f"/api/decks/{ml_deck['id']}", headers=sam).status_code == 403
+    assert client.delete(f"/api/decks/{ml_deck['id']}", headers=alex).status_code == 204
+    assert client.get(f"/api/decks/{ml_deck['id']}", headers=alex).status_code == 404
+    # Every learner's schedule and history for those cards is removed with the deck.
+    assert db.scalar(select(func.count()).select_from(CardState).where(CardState.card_id.in_(card_ids))) == 0
+    assert db.scalar(select(func.count()).select_from(ReviewLog).where(ReviewLog.card_id.in_(card_ids))) == 0
+
+
+def test_deck_detail_reports_concept_coverage(client, alex, ml_deck):
+    detail = client.get(f"/api/decks/{ml_deck['id']}", headers=alex).json()
+    cards = client.get(f"/api/decks/{ml_deck['id']}/cards", headers=alex).json()["items"]
+    linked = [c["concept_id"] for c in cards if c["concept_id"]]
+    assert linked, "the seeded deck links some cards to course concepts"
+    assert {c["id"]: c["card_count"] for c in detail["concepts"]} == {
+        c["id"]: linked.count(c["id"]) for c in detail["concepts"]
+    }
+
+
+# ---------- Cards ----------
+
+
+def test_card_list_includes_the_learners_schedule(client, alex, sam, ml_deck):
+    alex_cards = client.get(f"/api/decks/{ml_deck['id']}/cards", headers=alex).json()
+    sam_cards = client.get(f"/api/decks/{ml_deck['id']}/cards", headers=sam).json()
+    assert alex_cards["total"] == 16
+    assert [c["position"] for c in alex_cards["items"]] == list(range(16))
+    reviewed = [c for c in alex_cards["items"] if c["status"] != "new"]
+    assert reviewed and all(c["reviews"] >= 1 and c["due_at"] for c in reviewed)
+    assert sum(alex_cards["counts"].values()) == 16
+    # Schedules are personal: the same cards have different states for another learner.
+    assert alex_cards["counts"] != sam_cards["counts"]
+
+
+def test_card_list_filters_searches_and_sorts(client, alex, ml_deck):
+    url = f"/api/decks/{ml_deck['id']}/cards"
+    found = client.get(url, params={"q": "learning rate"}, headers=alex).json()["items"]
+    assert {c["front"] for c in found} == {
+        "What does the learning rate control?",
+        "What happens when the learning rate is too large?",
+        "What happens when the learning rate is too small?",
+    }
+    young = client.get(url, params={"status": "young"}, headers=alex).json()
+    assert young["total"] == young["counts"]["young"]
+    assert all(c["status"] == "young" for c in young["items"])
+    by_due = client.get(url, params={"sort": "due_at"}, headers=alex).json()["items"]
+    due_dates = [c["due_at"] for c in by_due if c["due_at"]]
+    assert due_dates == sorted(due_dates)
+    assert client.get(url, params={"status": "ancient"}, headers=alex).status_code == 422
+
+
+def test_create_update_and_delete_a_card(client, alex, ml_deck, ml_course):
+    concept = next(c for c in client.get(f"/api/courses/{ml_course['id']}", headers=alex).json()["concepts"])
+    created = client.post(
+        f"/api/decks/{ml_deck['id']}/cards",
+        json={"front": "What is a label?", "back": "The target value", "hint": "y", "concept_id": concept["id"]},
+        headers=alex,
+    )
+    assert created.status_code == 201, created.text
+    card = created.json()
+    assert card["status"] == "new"
+    assert card["position"] == 16
+    assert card["concept_name"] == concept["name"]
+
+    updated = client.patch(f"/api/cards/{card['id']}", json={"back": "The value to predict"}, headers=alex).json()
+    assert updated["back"] == "The value to predict"
+    assert updated["concept_id"] == concept["id"]
+    unlinked = client.patch(f"/api/cards/{card['id']}", json={"concept_id": None}, headers=alex).json()
+    assert unlinked["concept_id"] is None
+
+    assert client.delete(f"/api/cards/{card['id']}", headers=alex).status_code == 204
+    assert client.patch(f"/api/cards/{card['id']}", json={"back": "x"}, headers=alex).status_code == 404
+
+
+def test_card_validation(client, alex, ml_deck):
+    url = f"/api/decks/{ml_deck['id']}/cards"
+    assert client.post(url, json={"front": "  ", "back": "x"}, headers=alex).status_code == 422
+    assert client.post(url, json={"front": "x", "back": "y" * 2001}, headers=alex).status_code == 422
+    duplicate = client.post(url, json={"front": "define   PRECISION.", "back": "x"}, headers=alex)
+    assert duplicate.status_code == 409
+
+
