@@ -502,3 +502,44 @@ def test_session_minutes_are_capped(client, own_deck):
     assert capped["minutes"] == 240
 
 
+def test_stats_summarise_workload_retention_and_forecast(client, alex, northwind, db):
+    stats = client.get(f"/api/workspaces/{northwind}/review/stats", headers=alex).json()
+    summary = due_summary(db, user_id(db, "demo@learnloop.dev"), northwind)
+    assert stats["due_today"] == summary["due"]
+    assert stats["new_available"] == summary["new"]
+    assert stats["total_cards"] == summary["total"]
+    assert stats["reviewed_today"] == 0
+    assert len(stats["forecast"]) == 14 and stats["forecast"][0]["date"] == "2022-03-14"
+    assert stats["forecast"][0]["due"] == summary["due"]
+    assert len(stats["history"]) == 14 and stats["history"][-1]["date"] == "2022-03-14"
+    assert stats["reviews_30d"] >= sum(h["reviews"] for h in stats["history"]) > 0
+    assert 0 < stats["retention_30d"] <= 100
+    assert stats["learning"] + stats["young"] + stats["mature"] == summary["total"] - summary["new"]
+
+
+def test_stats_update_after_reviewing(client, alex, northwind):
+    url = f"/api/workspaces/{northwind}/review/stats"
+    before = client.get(url, headers=alex).json()
+    card = client.get(f"/api/workspaces/{northwind}/review/queue", headers=alex).json()["cards"][0]
+    client.post(f"/api/cards/{card['id']}/review", json={"grade": 0}, headers=alex)
+    after = client.get(url, headers=alex).json()
+    assert after["reviewed_today"] == before["reviewed_today"] + 1
+    assert after["again_today"] == before["again_today"] + 1
+    assert after["history"][-1] == {"date": "2022-03-14", "reviews": 1, "again": 1}
+    assert after["retention_30d"] < before["retention_30d"]
+
+
+def test_stats_can_be_scoped_to_a_deck(client, alex, northwind, ml_deck):
+    stats = client.get(
+        f"/api/workspaces/{northwind}/review/stats", params={"deck_id": ml_deck["id"]}, headers=alex
+    ).json()
+    assert stats["total_cards"] == ml_deck["card_count"]
+    assert stats["due_today"] == ml_deck["due"]
+
+
+def test_other_learners_have_their_own_schedules(client, sam, northwind, db):
+    stats = client.get(f"/api/workspaces/{northwind}/review/stats", headers=sam).json()
+    assert stats["due_today"] == due_summary(db, user_id(db, "sam@learnloop.dev"), northwind)["due"]
+    priya = login(client, "priya@learnloop.dev")
+    priya_decks = client.get(f"/api/workspaces/{northwind}/decks", headers=priya).json()
+    assert priya_decks["totals"]["new"] > stats["new_available"]
