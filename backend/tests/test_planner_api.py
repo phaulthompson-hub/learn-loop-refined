@@ -122,3 +122,129 @@ def test_agenda_groups_the_next_days(client, alex, northwind):
 # ---------- Creating ----------
 
 
+def test_create_event_and_read_it_back(client, alex, northwind):
+    response = client.post(f"/api/workspaces/{northwind}/events", json=new_event(location="Desk"), headers=alex)
+    assert response.status_code == 201, response.text
+    saved = response.json()
+    assert saved["conflicts"] == []
+    event = saved["event"]
+    assert (event["title"], event["location"], event["can_edit"]) == ("Focus block", "Desk", True)
+    assert client.get(f"/api/events/{event['id']}", headers=alex).json()["starts_at"] == "2022-03-17T10:00:00"
+
+
+def test_create_reports_overlapping_occurrences(client, alex, northwind):
+    body = new_event(starts_at="2022-03-16T15:30:00", ends_at="2022-03-16T16:00:00")
+    conflicts = client.post(f"/api/workspaces/{northwind}/events", json=body, headers=alex).json()["conflicts"]
+    assert [c["title"] for c in conflicts] == ["SQL workshop: window functions", "Pair study with Sam"]
+    assert conflicts[0]["starts_at"] == "2022-03-16T15:00:00"
+
+
+def test_recurring_event_conflicts_with_a_recurring_series(client, alex, northwind):
+    body = new_event(starts_at="2022-03-15T07:45:00", ends_at="2022-03-15T08:15:00", recurrence="weekly")
+    conflicts = client.post(f"/api/workspaces/{northwind}/events", json=body, headers=alex).json()["conflicts"]
+    assert conflicts and all(c["title"] == "Flashcard review block" for c in conflicts)
+    assert [c["starts_at"][:10] for c in conflicts[:3]] == ["2022-03-15", "2022-03-22", "2022-03-29"]
+
+
+def test_timezone_aware_input_is_stored_as_utc(client, alex, northwind):
+    body = new_event(starts_at="2022-03-17T12:00:00+02:00", ends_at="2022-03-17T13:30:45+02:00")
+    event = client.post(f"/api/workspaces/{northwind}/events", json=body, headers=alex).json()["event"]
+    assert (event["starts_at"], event["ends_at"]) == ("2022-03-17T10:00:00", "2022-03-17T11:30:00")
+
+
+def test_all_day_events_are_normalised(client, alex, northwind):
+    body = new_event(all_day=True, starts_at="2022-03-17T14:00:00", ends_at="2022-03-18T09:00:00")
+    event = client.post(f"/api/workspaces/{northwind}/events", json=body, headers=alex).json()["event"]
+    assert (event["starts_at"], event["ends_at"]) == ("2022-03-17T00:00:00", "2022-03-19T00:00:00")
+    single = new_event(all_day=True, ends_at=None)
+    event = client.post(f"/api/workspaces/{northwind}/events", json=single, headers=alex).json()["event"]
+    assert event["ends_at"] == "2022-03-18T00:00:00"
+
+
+def test_non_repeating_events_drop_the_until_date(client, alex, northwind):
+    body = new_event(recurrence="none", recurrence_until="2022-04-28")
+    event = client.post(f"/api/workspaces/{northwind}/events", json=body, headers=alex).json()["event"]
+    assert event["recurrence_until"] is None
+
+
+def test_validation_errors(client, alex, northwind):
+    url = f"/api/workspaces/{northwind}/events"
+    cases = {
+        "The end time must be after the start time": new_event(ends_at="2022-03-17T09:00:00"),
+        "at most 12 hours": new_event(ends_at="2022-03-18T09:00:00"),
+        "Choose an end time": new_event(ends_at=None),
+        "must start on a weekday": new_event(
+            starts_at="2022-03-19T10:00:00", ends_at="2022-03-19T11:00:00", recurrence="weekdays"
+        ),
+        "on or after the first day": new_event(recurrence="daily", recurrence_until="2022-03-16"),
+        "at most one year": new_event(recurrence="weekly", recurrence_until="2023-05-30"),
+        "at most 14 days": new_event(all_day=True, ends_at="2022-04-08T00:00:00"),
+        "Only single-day all-day events can repeat": new_event(
+            all_day=True, ends_at="2022-03-19T00:00:00", recurrence="weekly"
+        ),
+        "at least 2 characters": new_event(title=" x "),
+    }
+    for message, body in cases.items():
+        response = client.post(url, json=body, headers=alex)
+        assert response.status_code == 422, message
+        assert message in response.text, response.text
+
+
+def test_course_must_belong_to_the_workspace(client, alex, northwind, biology):
+    cells = client.get(f"/api/workspaces/{biology}/courses", headers=alex).json()["items"][0]
+    response = client.post(f"/api/workspaces/{northwind}/events", json=new_event(course_id=cells["id"]), headers=alex)
+    assert response.status_code == 422
+
+
+def test_learners_cannot_announce_exams_or_live_sessions(client, sam, northwind):
+    url = f"/api/workspaces/{northwind}/events"
+    response = client.post(url, json=new_event(kind="live", shared=True), headers=sam)
+    assert response.status_code == 403
+    assert client.post(url, json=new_event(kind="study", shared=True), headers=sam).status_code == 201
+
+
+def test_shared_exam_records_activity_and_notifies_other_members(client, maya, northwind, db):
+    body = new_event(title="Statistics final", kind="exam", shared=True, location="Hall A")
+    event = client.post(f"/api/workspaces/{northwind}/events", json=body, headers=maya).json()["event"]
+    activity = db.scalars(
+        select(Activity).where(Activity.verb == "event.created", Activity.object_id == event["id"])
+    ).one()
+    assert "Statistics final" in activity.summary
+    notified = db.scalars(select(Notification).where(Notification.title == "New exam: Statistics final")).all()
+    recipients = {db.get(User, n.user_id).email for n in notified}
+    assert recipients == {"demo@learnloop.dev", "sam@learnloop.dev", "priya@learnloop.dev", "jonas@learnloop.dev"}
+    assert all(n.kind == "event" and n.link.startswith("/planner?date=2022-03-17") for n in notified)
+    assert "Hall A" in notified[0].body
+
+
+def test_private_events_are_silent(client, alex, northwind, db):
+    before = db.scalar(select(Notification.id).order_by(Notification.id.desc()).limit(1))
+    client.post(f"/api/workspaces/{northwind}/events", json=new_event(kind="exam"), headers=alex)
+    after = db.scalar(select(Notification.id).order_by(Notification.id.desc()).limit(1))
+    assert before == after
+
+
+# ---------- Updating and deleting ----------
+
+
+def test_owner_updates_with_a_partial_patch(client, alex, northwind):
+    event_id_ = event_id(client, alex, northwind, "Pair study with Sam")
+    response = client.patch(
+        f"/api/events/{event_id_}",
+        json={"starts_at": "2022-03-16T17:00:00", "ends_at": "2022-03-16T18:00:00"},
+        headers=alex,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["conflicts"] == []
+    assert response.json()["event"]["title"] == "Pair study with Sam"
+    assert response.json()["event"]["location"] == "Library room 2"
+
+
+def test_patch_is_validated_against_the_merged_event(client, alex, northwind):
+    event_id_ = event_id(client, alex, northwind, "Pair study with Sam")
+    response = client.patch(f"/api/events/{event_id_}", json={"ends_at": "2022-03-16T10:00:00"}, headers=alex)
+    assert response.status_code == 422
+    assert "after the start time" in response.json()["detail"][0]["msg"]
+    assert client.patch(f"/api/events/{event_id_}", json={"title": None}, headers=alex).status_code == 422
+
+
