@@ -248,3 +248,82 @@ def test_patch_is_validated_against_the_merged_event(client, alex, northwind):
     assert client.patch(f"/api/events/{event_id_}", json={"title": None}, headers=alex).status_code == 422
 
 
+def test_recurring_series_edits_apply_to_every_occurrence(client, alex, northwind):
+    series = event_id(client, alex, northwind, "Flashcard review block")
+    client.patch(
+        f"/api/events/{series}", json={"title": "Morning cards", "recurrence_until": "2022-03-16"}, headers=alex
+    )
+    names = titles(week_items(client, alex, northwind))
+    assert names.count("Morning cards") == 3
+    assert "Flashcard review block" not in names
+
+
+def test_permissions_on_shared_and_private_events(client, alex, sam, northwind):
+    workshop = event_id(client, alex, northwind, "SQL workshop: window functions")
+    private = event_id(client, alex, northwind, "Evening ML study")
+    assert client.patch(f"/api/events/{workshop}", json={"title": "Hijacked"}, headers=sam).status_code == 403
+    assert client.delete(f"/api/events/{workshop}", headers=sam).status_code == 403
+    assert client.get(f"/api/events/{private}", headers=sam).status_code == 404
+    assert client.patch(f"/api/events/{private}", json={"title": "Mine now"}, headers=sam).status_code == 404
+
+
+def test_admin_reschedules_a_shared_session_and_members_hear_about_it(client, alex, northwind, db):
+    workshop = event_id(client, alex, northwind, "SQL workshop: window functions")
+    response = client.patch(
+        f"/api/events/{workshop}",
+        json={"starts_at": "2022-03-17T15:00:00", "ends_at": "2022-03-17T16:30:00"},
+        headers=alex,
+    )
+    assert response.status_code == 200
+    notes = db.scalars(select(Notification).where(Notification.title.startswith("Rescheduled live session"))).all()
+    recipients = {db.get(User, n.user_id).email for n in notes}
+    assert "maya@learnloop.dev" in recipients and "demo@learnloop.dev" not in recipients
+
+
+def test_sharing_an_existing_event_publishes_it(client, alex, sam, northwind, db):
+    private = event_id(client, alex, northwind, "Read: regularisation chapter")
+    assert client.patch(f"/api/events/{private}", json={"shared": True}, headers=alex).status_code == 200
+    assert db.scalars(select(Activity).where(Activity.verb == "event.created", Activity.object_id == private)).first()
+    assert "Read: regularisation chapter" in titles(week_items(client, sam, northwind))
+
+
+def test_delete_removes_the_series(client, alex, northwind, db):
+    series = event_id(client, alex, northwind, "Evening ML study")
+    assert client.delete(f"/api/events/{series}", headers=alex).status_code == 204
+    assert db.get(Event, series) is None
+    assert "Evening ML study" not in titles(week_items(client, alex, northwind))
+    assert client.delete(f"/api/events/{series}", headers=alex).status_code == 404
+
+
+def test_stored_event_conflicts_can_be_rechecked(client, alex, northwind):
+    pair = event_id(client, alex, northwind, "Pair study with Sam")
+    conflicts = client.get(f"/api/events/{pair}/conflicts", headers=alex).json()
+    assert [c["title"] for c in conflicts] == ["SQL workshop: window functions"]
+
+
+# ---------- iCalendar export ----------
+
+
+def test_ics_export(client, alex, northwind):
+    response = client.get(f"/api/workspaces/{northwind}/events.ics", headers=alex)
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/calendar")
+    assert 'filename="learnloop-northwind-data-academy.ics"' in response.headers["content-disposition"]
+    text = response.text
+    assert text.startswith("BEGIN:VCALENDAR\r\n") and text.endswith("END:VCALENDAR\r\n")
+    lines = text.replace("\r\n ", "").split("\r\n")
+    assert "SUMMARY:Evening ML study" in lines
+    assert any(line.startswith("RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR") for line in lines)
+    assert "SUMMARY:SQL practice" not in lines  # Sam's private event
+    assert "SUMMARY:Statistics quiz 2 closes" in lines
+    assert "DTSTART;VALUE=DATE:20220318" in lines
+    assert all(len(line.encode()) <= 75 for line in text.split("\r\n"))
+    again = client.get(f"/api/workspaces/{northwind}/events.ics", headers=alex).text
+    assert again == text
+
+
+def test_ics_export_mine_only(client, northwind):
+    sam = login(client, "sam@learnloop.dev")
+    text = client.get(f"/api/workspaces/{northwind}/events.ics", params={"mine": "true"}, headers=sam).text
+    assert "SUMMARY:SQL practice" in text
+    assert "SQL workshop" not in text
