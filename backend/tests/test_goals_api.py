@@ -124,3 +124,147 @@ def test_update_revalidates_the_merged_goal(client, alex, northwind):
     assert switched.json()["period"] == "day"
 
 
+def test_renaming_keeps_an_existing_due_date(client, sam, northwind):
+    goal = goal_named(client, sam, northwind, "Master SQL")
+    response = client.patch(f"/api/goals/{goal['id']}", json={"title": "Master SQL joins"}, headers=sam)
+    assert response.status_code == 200
+    assert response.json()["due_date"] == goal["due_date"]
+
+
+def test_archive_restore_and_delete(client, alex, northwind):
+    goal = goal_named(client, alex, northwind, "40 flashcard reviews a week")
+    archived = client.post(f"/api/goals/{goal['id']}/archive", headers=alex)
+    assert archived.status_code == 200 and archived.json()["archived"] is True
+    assert "40 flashcard reviews a week" not in [g["title"] for g in goals(client, alex, northwind)["items"]]
+    restored = client.post(f"/api/goals/{goal['id']}/restore", headers=alex)
+    assert restored.json()["archived"] is False
+    assert client.delete(f"/api/goals/{goal['id']}", headers=alex).status_code == 204
+    assert client.get(f"/api/goals/{goal['id']}", headers=alex).status_code == 404
+
+
+def test_active_goal_limit(client, newcomer):
+    headers, workspace = newcomer
+    for n in range(12):
+        response = create_goal(client, headers, workspace, title=f"Goal {n}", kind="daily_answers", target=n + 1)
+        assert response.status_code == 201
+    extra = create_goal(client, headers, workspace, title="One too many", kind="daily_answers", target=3)
+    assert extra.status_code == 409
+    first = goals(client, headers, workspace)["items"][0]
+    client.post(f"/api/goals/{first['id']}/archive", headers=headers)
+    assert create_goal(client, headers, workspace, title="Fits now", kind="daily_answers", target=3).status_code == 201
+    assert client.post(f"/api/goals/{first['id']}/restore", headers=headers).status_code == 409
+
+
+def test_answering_a_question_moves_the_daily_goal(client, alex, northwind, ml_course):
+    goal = goal_named(client, alex, northwind, "Answer 8 questions a day")
+    question = client.get(f"/api/courses/{ml_course['id']}/quiz", params={"count": 1}, headers=alex).json()[0]
+    answer = {"question_id": question["id"], "concept_id": question["concept_id"], "selected": 0}
+    assert client.post(f"/api/courses/{ml_course['id']}/answers", json=answer, headers=alex).status_code == 200
+    progress = client.get(f"/api/goals/{goal['id']}", headers=alex).json()["progress"]
+    assert progress["current"] == 1
+    assert progress["percent"] == 12
+
+
+# ---------- Study time ----------
+
+
+def test_log_study_time_and_list_it(client, alex, northwind, ml_course):
+    before = goal_named(client, alex, northwind, "3 hours of focused study")["progress"]["current"]
+    response = log_time(
+        client, alex, northwind, minutes=45, activity="reading", course_id=ml_course["id"], note="Ch. 4"
+    )
+    assert response.status_code == 201, response.text
+    log = response.json()
+    assert (log["minutes"], log["logged_at"], log["course"]["id"]) == (45, "2022-03-14T09:00:00", ml_course["id"])
+    after = goal_named(client, alex, northwind, "3 hours of focused study")["progress"]["current"]
+    assert after == before + 45
+    params = {"activity": "reading", "page_size": 100}
+    page = client.get(f"/api/workspaces/{northwind}/study-logs", params=params, headers=alex).json()
+    assert page["items"][0]["id"] == log["id"]  # newest first
+    assert all(item["activity"] == "reading" for item in page["items"])
+    assert page["total_minutes"] == sum(item["minutes"] for item in page["items"])
+    recent = client.get(f"/api/workspaces/{northwind}/study-logs", params={"days": 1}, headers=alex).json()
+    assert all(item["logged_at"].startswith("2022-03-14") for item in recent["items"])
+
+
+def test_study_log_validation(client, alex, northwind, biology):
+    cells = client.get(f"/api/workspaces/{biology}/courses", headers=alex).json()["items"][0]
+    cases = [
+        ({"minutes": 0}, "greater than or equal to 1"),
+        ({"minutes": 601}, "less than or equal to 600"),
+        ({"logged_at": "2022-03-14T10:00:00"}, "in the future"),
+        ({"logged_at": "2021-10-30T10:00:00"}, "last 90 days"),
+        ({"activity": "napping"}, "unexpected value; permitted"),
+        ({"course_id": cells["id"]}, "course from this workspace"),
+    ]
+    for body, message in cases:
+        response = log_time(client, alex, northwind, **body)
+        assert response.status_code == 422, message
+        assert message in response.text, response.text
+
+
+def test_a_day_holds_at_most_24_hours(client, newcomer):
+    headers, workspace = newcomer
+    for hour in (1, 2):
+        stamp = f"2022-03-13T0{hour}:00:00"
+        assert log_time(client, headers, workspace, minutes=600, logged_at=stamp).status_code == 201
+    response = log_time(client, headers, workspace, minutes=300, logged_at="2022-03-13T20:00:00")
+    assert response.status_code == 422
+    assert "at most 240 more fit" in response.text
+    assert log_time(client, headers, workspace, minutes=240, logged_at="2022-03-13T20:00:00").status_code == 201
+
+
+def test_update_and_delete_own_logs_only(client, alex, sam, northwind):
+    log = log_time(client, alex, northwind, minutes=20).json()
+    url = f"/api/study-logs/{log['id']}"
+    assert client.patch(url, json={"minutes": 35, "note": "Longer than planned"}, headers=alex).json()["minutes"] == 35
+    assert client.patch(url, json={"logged_at": "2022-03-15T08:00:00"}, headers=alex).status_code == 422
+    assert client.patch(url, json={"minutes": 5}, headers=sam).status_code == 404
+    assert client.delete(url, headers=sam).status_code == 404
+    assert client.delete(url, headers=alex).status_code == 204
+    assert client.delete(url, headers=alex).status_code == 404
+
+
+def test_study_summary_endpoint(client, newcomer):
+    headers, workspace = newcomer
+    log_time(client, headers, workspace, minutes=40, logged_at="2022-03-14T07:00:00")
+    log_time(client, headers, workspace, minutes=25, logged_at="2022-03-08T18:00:00")
+    response = client.get(f"/api/workspaces/{workspace}/study-logs/summary", params={"weeks": 2}, headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert [w["minutes"] for w in body["weeks"]] == [25, 40]
+    assert body["weeks"][0]["days"][1] == {"date": "2022-03-08", "minutes": 25}
+    assert body["by_course"] == [{"course_id": None, "title": "General study", "color": None, "minutes": 65}]
+    assert (body["today_minutes"], body["daily_goal_minutes"]) == (40, 30)
+    assert client.get(f"/api/workspaces/{workspace}/study-logs/summary?weeks=13", headers=headers).status_code == 422
+
+
+# ---------- Streak ----------
+
+
+def test_streak_with_heatmap(client, alex, northwind):
+    body = client.get(f"/api/workspaces/{northwind}/streak", headers=alex).json()
+    assert body["active_today"] is True
+    assert body["current"] >= 13 and body["longest"] >= 27
+    heatmap = body["heatmap"]
+    assert (heatmap["start"], heatmap["end"], heatmap["weeks"]) == ("2021-12-27", "2022-03-20", 12)
+    assert len(heatmap["days"]) == 84
+    assert {d["level"] for d in heatmap["days"]} <= {0, 1, 2, 3, 4}
+    assert all(d["level"] == 0 for d in heatmap["days"] if d["future"])
+
+
+def test_streak_heatmap_follows_week_start(client, db):
+    headers, workspace, me = register(client, email="sunday@example.com")
+    db.get(User, me["user"]["id"]).week_starts_on = 6
+    db.commit()
+    body = client.get(f"/api/workspaces/{workspace}/streak", headers=headers).json()
+    assert body["week_starts_on"] == 6
+    assert body["heatmap"]["start"] == "2021-12-26"  # a Sunday
+    assert (body["current"], body["active_today"]) == (0, False)
+    log_time(client, headers, workspace, minutes=15)
+    body = client.get(f"/api/workspaces/{workspace}/streak", headers=headers).json()
+    assert (body["current"], body["longest"], body["active_today"]) == (1, 1, True)
+
+
+def test_streak_requires_membership(client, sam, biology):
+    assert client.get(f"/api/workspaces/{biology}/streak", headers=sam).status_code == 404
