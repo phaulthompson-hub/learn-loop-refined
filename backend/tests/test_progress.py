@@ -244,3 +244,48 @@ def test_alex_has_a_live_streak_and_a_long_best_run(seeded, db):
     assert summary["active_days_last_30"] >= 20
 
 
+def test_daily_answers_goal_is_at_risk_before_any_answers_today(seeded, db):
+    progress = goal_progress(db, goal_titled(db, "Answer 8 questions a day"))
+    assert progress["current"] == 0
+    assert progress["status"] == "at_risk"
+    assert progress["expected"] == 3.0  # 9 of 24 hours gone
+    assert progress["period_label"] == "Today · Mon 14 Mar"
+    assert progress["days_left"] == 0
+
+
+def test_course_mastery_goal_uses_the_learners_average(seeded, db):
+    goal = goal_titled(db, "Reach 80% on Machine Learning")
+    course = db.get(Course, goal.course_id)
+    expected = average_mastery(learner_concepts(db, course, goal.user_id))
+    progress = goal_progress(db, goal)
+    assert progress["current"] == round(expected, 1)
+    assert progress["percent"] == min(100, round(100 * expected / 80))
+    assert progress["period_label"] == "Due 4 Apr 2022"
+    assert progress["days_left"] == 21
+
+
+def test_goal_done_and_overdue(seeded, db):
+    sam = user_named(db, "sam@learnloop.dev")
+    northwind = db.scalars(select(Workspace).where(Workspace.slug == "northwind-data-academy")).one()
+    minutes = Goal(
+        workspace_id=northwind.id, user_id=sam.id, title="Daily study", kind="study_minutes", period="day", target=30
+    )
+    db.add_all([minutes, StudyLog(user_id=sam.id, minutes=45, logged_at=clock.now() - timedelta(hours=1))])
+    sql = goal_titled(db, "Master SQL")
+    sql.due_date = TODAY - timedelta(days=1)
+    db.flush()
+    done = goal_progress(db, minutes)
+    assert (done["status"], done["percent"], done["remaining"]) == ("done", 100, 0)
+    assert goal_progress(db, sql)["status"] == "overdue"
+
+
+def test_answers_in_other_workspaces_do_not_count(seeded, db):
+    alex = user_named(db, "demo@learnloop.dev")
+    biology = db.scalars(select(Workspace).where(Workspace.slug == "biology-201-study-group")).one()
+    goal = Goal(workspace_id=biology.id, user_id=alex.id, title="Bio", kind="daily_answers", period="day", target=5)
+    db.add(goal)
+    db.flush()
+    with clock.travel(datetime(2022, 3, 11, 20)):  # Friday: Alex answered ML and SQL questions only
+        assert goal_progress(db, goal)["current"] == 0
+    with clock.travel(datetime(2022, 3, 12, 20)):  # Saturday: a cells quiz in the biology workspace
+        assert goal_progress(db, goal)["current"] == 2
