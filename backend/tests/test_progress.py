@@ -122,3 +122,125 @@ class TestHeatmapLevels:
 # ---------- A fresh learner with hand-made study logs ----------
 
 
+@pytest.fixture
+def learner(newcomer, db):
+    """(user, workspace, course) for a brand-new account, so other features' seed data cannot interfere."""
+    _, workspace_id = newcomer
+    user = db.scalars(select(User).where(User.email == "learner@example.com")).one()
+    course = Course(workspace_id=workspace_id, title="Statistics", color="#2563eb")
+    db.add(course)
+    db.flush()
+    return user, db.get(Workspace, workspace_id), course
+
+
+def log(db, user: User, days_back: int, hour: int, minutes: int, course: Course | None = None) -> None:
+    moment = datetime.combine(TODAY - timedelta(days=days_back), datetime.min.time()) + timedelta(hours=hour)
+    db.add(StudyLog(user_id=user.id, minutes=minutes, logged_at=moment, course_id=course.id if course else None))
+
+
+def test_weekly_minutes_follow_the_week_start_preference(learner, db):
+    user, workspace, course = learner
+    log(db, user, 0, 8, 20)
+    log(db, user, 1, 18, 55, course)  # Sunday
+    log(db, user, 2, 18, 30)  # Saturday
+    goal = Goal(
+        workspace_id=workspace.id, user_id=user.id, title="3 h", kind="study_minutes", period="week", target=180
+    )
+    db.add(goal)
+    db.flush()
+    progress = goal_progress(db, goal)
+    assert (progress["current"], progress["status"], progress["unit"]) == (20, "on_track", "minutes")
+    assert progress["days_left"] == 6
+    user.week_starts_on = 6  # a Sunday week start pulls yesterday into this week
+    assert goal_progress(db, goal)["current"] == 75
+    user.week_starts_on = 5
+    assert goal_progress(db, goal)["current"] == 105
+
+
+def test_minutes_goal_for_one_course_ignores_general_study(learner, db):
+    user, workspace, course = learner
+    log(db, user, 0, 7, 40)
+    log(db, user, 0, 8, 15, course)
+    goal = Goal(
+        workspace_id=workspace.id,
+        user_id=user.id,
+        course_id=course.id,
+        title="Stats",
+        kind="study_minutes",
+        period="day",
+        target=30,
+    )
+    db.add(goal)
+    db.flush()
+    progress = goal_progress(db, goal)
+    assert progress["current"] == 15
+    assert progress["status"] == "on_track"  # 37.5% of the day gone: 15 of an expected 11.25
+
+
+def test_heatmap_covers_whole_weeks_and_flags_the_future(learner, db):
+    user, _, _ = learner
+    log(db, user, 0, 8, 20)
+    log(db, user, 3, 8, 80)
+    log(db, user, 40, 8, 10)
+    db.flush()
+    heatmap = activity_heatmap(db, user.id, TODAY, weeks=12, week_starts_on=0)
+    days = {d["date"]: d for d in heatmap["days"]}
+    assert len(heatmap["days"]) == 84
+    assert heatmap["start"] == date(2021, 12, 27)  # a Monday, 11 weeks before this week
+    assert heatmap["end"] == date(2022, 3, 20)
+    assert [d["future"] for d in heatmap["days"]].count(True) == 6
+    assert [days[TODAY - timedelta(days=n)]["level"] for n in (3, 0, 40, 1)] == [4, 1, 1, 0]
+    assert heatmap["max_score"] == 8.0
+    assert heatmap["active_days"] == 3
+    assert heatmap["totals"] == {"answers": 0, "reviews": 0, "minutes": 110}
+
+
+def test_study_summary_splits_by_week_and_course(learner, db):
+    user, workspace, course = learner
+    log(db, user, 0, 8, 20)
+    log(db, user, 1, 18, 55, course)
+    log(db, user, 3, 18, 30, course)
+    log(db, user, 30, 18, 99)  # before the two-week window
+    db.flush()
+    summary = study_summary(db, user.id, workspace.id, TODAY, weeks=2)
+    assert [w["start"] for w in summary["weeks"]] == [date(2022, 3, 7), date(2022, 3, 14)]
+    assert [w["minutes"] for w in summary["weeks"]] == [85, 20]
+    assert summary["weeks"][0]["days"][6] == {"date": date(2022, 3, 13), "minutes": 55}
+    assert [(row["title"], row["minutes"]) for row in summary["by_course"]] == [
+        ("Statistics", 85),
+        ("General study", 20),
+    ]
+    assert (summary["total_minutes"], summary["active_days"], summary["average_per_active_day"]) == (105, 3, 35)
+    assert summary["today_minutes"] == 20
+
+
+def test_study_summary_excludes_courses_of_other_workspaces(learner, db):
+    user, workspace, _ = learner
+    elsewhere = Course(workspace_id=workspace.id + 1000, title="Elsewhere")
+    db.add(elsewhere)
+    db.flush()
+    log(db, user, 0, 8, 45, elsewhere)
+    db.flush()
+    assert study_summary(db, user.id, workspace.id, TODAY, weeks=1)["total_minutes"] == 0
+
+
+# ---------- Against the seeded demo data ----------
+
+
+def user_named(db, email: str) -> User:
+    return db.scalars(select(User).where(User.email == email)).one()
+
+
+def goal_titled(db, title: str) -> Goal:
+    return db.scalars(select(Goal).where(Goal.title == title)).one()
+
+
+def test_alex_has_a_live_streak_and_a_long_best_run(seeded, db):
+    summary = streak_summary(db, user_named(db, "demo@learnloop.dev").id)
+    assert summary["active_today"] is True
+    assert summary["current"] >= 13  # today plus the twelve quiz days before it
+    assert summary["longest"] >= 27  # the seeded run from 46 to 20 days ago
+    assert summary["longest"] > summary["current"]
+    assert summary["active_days_last_30"] >= 20
+
+
