@@ -118,3 +118,123 @@ def test_list_filters_by_me_and_unassigned(client, alex, northwind):
     assert len(unassigned) == 2 and all(t["assignee"] is None for t in unassigned)
 
 
+def test_list_filters_by_status_label_priority_and_query(client, alex, northwind):
+    open_review = list_tasks(client, alex, northwind, status="todo,review")["items"]
+    assert {t["status"] for t in open_review} == {"todo", "review"}
+    blocked = list_tasks(client, alex, northwind, label_id=label_id(client, alex, northwind, "Blocked"))["items"]
+    assert [t["title"] for t in blocked] == ["Normalise the Northwind orders schema to 3NF"]
+    urgent = list_tasks(client, alex, northwind, priority="urgent")["items"]
+    assert [t["priority"] for t in urgent] == ["urgent"]
+    by_key = list_tasks(client, alex, northwind, q="nda-5")["items"]
+    assert [t["key"] for t in by_key] == ["NDA-5"]
+
+
+def test_list_due_filters(client, alex, northwind):
+    overdue = list_tasks(client, alex, northwind, due="overdue")["items"]
+    assert len(overdue) == 3 and all(t["overdue"] for t in overdue)
+    today = list_tasks(client, alex, northwind, due="today")["items"]
+    assert today and all(t["due_date"] == "2022-03-14" for t in today)
+    week = list_tasks(client, alex, northwind, due="week")["items"]
+    assert all("2022-03-14" <= t["due_date"] <= "2022-03-20" and t["status"] != "done" for t in week)
+    undated = list_tasks(client, alex, northwind, due="none")["items"]
+    assert undated and all(t["due_date"] is None for t in undated)
+
+
+def test_list_sorting_and_pagination(client, alex, northwind):
+    by_priority = list_tasks(client, alex, northwind, sort="-priority")["items"]
+    assert by_priority[0]["priority"] == "urgent"
+    by_due = [t["due_date"] for t in list_tasks(client, alex, northwind, sort="due_date")["items"]]
+    dated = [d for d in by_due if d]
+    assert dated == sorted(dated) and by_due[-1] is None  # undated last
+    page = list_tasks(client, alex, northwind, page=2, page_size=10)
+    assert (page["total"], page["page"], len(page["items"])) == (23, 2, 10)
+
+
+@pytest.mark.parametrize(
+    "params", [{"status": "doing"}, {"sort": "colour"}, {"due": "soon"}, {"assignee_id": "someone"}]
+)
+def test_list_rejects_bad_filters(client, alex, northwind, params):
+    assert client.get(f"/api/workspaces/{northwind}/tasks", params=params, headers=alex).status_code == 422
+
+
+# ---------- Create ----------
+
+
+def test_create_numbers_positions_and_records(client, alex, northwind, db):
+    sam_id = member_id(client, alex, northwind, "Sam")
+    last = column(client, alex, northwind, "todo")["tasks"][-1]
+    response = create(
+        client,
+        alex,
+        northwind,
+        title="  Revise joins  ",
+        assignee_id=sam_id,
+        estimate=3,
+        due_date="2022-03-18",
+        label_ids=[label_id(client, alex, northwind, "Practice")] * 2,
+        checklist=["Inner joins", "Left joins"],
+    )
+    assert response.status_code == 201, response.text
+    task = response.json()
+    assert task["title"] == "Revise joins"
+    assert task["number"] == 24 and task["key"] == "NDA-24"
+    assert task["status"] == "todo" and task["position"] > last["position"]
+    assert task["reporter"]["name"] == "Alex Rivera"
+    assert [label["name"] for label in task["labels"]] == ["Practice"]
+    assert [i["text"] for i in task["checklist"]] == ["Inner joins", "Left joins"]
+    assert task["can_delete"] is True
+
+    verbs = db.scalars(
+        select(Activity.verb).where(Activity.object_type == "task", Activity.object_id == task["id"])
+    ).all()
+    assert set(verbs) == {"task.created", "task.assigned"}
+    note = notifications_for(db, sam_id)[-1]
+    assert note.kind == "task_assigned"
+    assert note.link == "/board?task=24"
+    assert "NDA-24" in note.title
+
+
+def test_self_assignment_does_not_notify(client, alex, northwind, db):
+    alex_id = member_id(client, alex, northwind, "Alex")
+    before = len(notifications_for(db, alex_id))
+    assert create(client, alex, northwind, assignee_id=alex_id).status_code == 201
+    assert len(notifications_for(db, alex_id)) == before
+
+
+def test_create_in_done_sets_completed_at(client, alex, northwind):
+    task = create(client, alex, northwind, status="done").json()
+    assert task["completed_at"] == "2022-03-14T09:00:00"
+
+
+def test_numbers_are_per_workspace(client, alex, biology):
+    assert create(client, alex, biology).json()["key"] == "BSG-9"
+
+
+def test_create_validation(client, alex, northwind, biology):
+    lena = member_id(client, alex, biology, "Lena")
+    bio_label = label_id(client, alex, biology, "Reading")
+    bio_course = board(client, alex, biology)["courses"][0]["id"]
+    cases = [
+        ({"assignee_id": lena}, "member"),
+        ({"label_ids": [bio_label]}, "Labels"),
+        ({"course_id": bio_course}, "course"),
+        ({"title": " x "}, None),
+        ({"estimate": 101}, None),
+        ({"priority": "critical"}, None),
+        ({"status": "blocked"}, None),
+        ({"checklist": [" "]}, None),
+    ]
+    for fields, message in cases:
+        response = create(client, alex, northwind, **fields)
+        assert response.status_code == 422, fields
+        if message:
+            assert message in response.json()["detail"]
+
+
+def test_learners_can_create_tasks(client, sam, northwind):
+    assert create(client, sam, northwind).status_code == 201
+
+
+# ---------- Read ----------
+
+
