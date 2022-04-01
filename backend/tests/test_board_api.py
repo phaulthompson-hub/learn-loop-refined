@@ -362,3 +362,163 @@ def test_move_with_foreign_neighbour_is_rejected(client, alex, northwind):
     assert move(client, alex, todo[0]["id"], status="doing").status_code == 422
 
 
+def test_move_rebalances_crowded_column(client, alex, northwind, db):
+    review = column(client, alex, northwind, "review")["tasks"]
+    for i, task in enumerate(review):
+        db.get(Task, task["id"]).position = 1.0 + i * 1e-9  # squeeze the column
+    db.commit()
+    mover = find_task(client, alex, northwind, "Draft SQL join cheat sheet")
+    body = move(client, alex, mover["id"], status="review", after_id=review[0]["id"]).json()
+    assert body["rebalanced"] is True
+    assert [c["position"] for c in body["column"]] == [STEP * (i + 1) for i in range(len(review) + 1)]
+    ids = [t["id"] for t in column(client, alex, northwind, "review")["tasks"]]
+    assert ids[:2] == [review[0]["id"], mover["id"]]
+
+
+# ---------- Delete ----------
+
+
+def test_delete_permissions(client, alex, sam, northwind):
+    # Sam is a learner: neither reporter nor assignee of this task.
+    other = find_task(client, alex, northwind, "Collect examples of misleading bar charts")
+    assert client.delete(f"/api/tasks/{other['id']}", headers=sam).status_code == 403
+    # ...but he can delete a task assigned to him, and admins can delete anything.
+    his = find_task(client, alex, northwind, "Draft SQL join cheat sheet")
+    assert client.get(f"/api/tasks/{his['id']}", headers=sam).json()["can_delete"] is True
+    assert client.delete(f"/api/tasks/{his['id']}", headers=sam).status_code == 204
+    assert client.delete(f"/api/tasks/{other['id']}", headers=alex).status_code == 204
+    assert client.get(f"/api/tasks/{other['id']}", headers=alex).status_code == 404
+
+
+# ---------- Checklist ----------
+
+
+def test_checklist_crud_and_progress(client, alex, northwind):
+    task = find_task(client, alex, northwind, "Draft SQL join cheat sheet")
+    url = f"/api/tasks/{task['id']}/checklist"
+    first = client.post(url, json={"text": "Inner join"}, headers=alex).json()
+    second = client.post(url, json={"text": "Left join"}, headers=alex).json()
+    third = client.post(url, json={"text": "Anti join"}, headers=alex).json()
+    assert [first["position"], second["position"], third["position"]] == [0, 1, 2]
+
+    assert client.post(f"{url}/{first['id']}/toggle", headers=alex).json()["done"] is True
+    renamed = client.patch(f"{url}/{second['id']}", json={"text": "Left outer join", "done": True}, headers=alex)
+    assert renamed.json() == {**second, "text": "Left outer join", "done": True}
+    summary = find_task(client, alex, northwind, "Draft SQL join cheat sheet")
+    assert (summary["checklist_done"], summary["checklist_total"]) == (2, 3)
+
+    order = client.put(f"{url}/order", json={"ids": [third["id"], first["id"], second["id"]]}, headers=alex)
+    assert [i["id"] for i in order.json()] == [third["id"], first["id"], second["id"]]
+    assert client.put(f"{url}/order", json={"ids": [third["id"]]}, headers=alex).status_code == 422
+
+    assert client.delete(f"{url}/{third['id']}", headers=alex).status_code == 204
+    items = client.get(f"/api/tasks/{task['id']}", headers=alex).json()["checklist"]
+    assert [(i["text"], i["position"]) for i in items] == [("Inner join", 0), ("Left outer join", 1)]
+    assert client.delete(f"{url}/{third['id']}", headers=alex).status_code == 404
+    assert client.post(url, json={"text": "   "}, headers=alex).status_code == 422
+
+
+def test_checklist_item_must_belong_to_task(client, alex, northwind):
+    a = find_task(client, alex, northwind, "Finish gradient descent exercises")
+    b = find_task(client, alex, northwind, "Draft SQL join cheat sheet")
+    item = client.get(f"/api/tasks/{a['id']}", headers=alex).json()["checklist"][0]
+    assert client.post(f"/api/tasks/{b['id']}/checklist/{item['id']}/toggle", headers=alex).status_code == 404
+
+
+# ---------- Comments ----------
+
+
+def test_comment_notifies_assignee_and_reporter_but_not_author(client, sam, northwind, db, alex):
+    # Assignee Alex, reporter Maya; Sam comments.
+    task = find_task(client, sam, northwind, "Finish gradient descent exercises")
+    alex_id = member_id(client, alex, northwind, "Alex")
+    maya_id = member_id(client, alex, northwind, "Maya")
+    sam_id = member_id(client, alex, northwind, "Sam")
+    sam_before = len(notifications_for(db, sam_id))
+    response = client.post(f"/api/tasks/{task['id']}/comments", json={"body": "Nice plots!"}, headers=sam)
+    assert response.status_code == 201
+    comment = response.json()
+    assert comment["can_edit"] and comment["can_delete"] and comment["author"]["id"] == sam_id
+    assert "commented on" in notifications_for(db, alex_id)[-1].title
+    assert "commented on" in notifications_for(db, maya_id)[-1].title
+    assert len(notifications_for(db, sam_id)) == sam_before
+
+
+def test_mentions_notify_once_and_edits_only_notify_new_mentions(client, alex, northwind, db):
+    task = find_task(client, alex, northwind, "Finish gradient descent exercises")  # assignee Alex, reporter Maya
+    maya_id = member_id(client, alex, northwind, "Maya")
+    priya_id = member_id(client, alex, northwind, "Priya")
+    jonas_id = member_id(client, alex, northwind, "Jonas")
+    maya_before = len(notifications_for(db, maya_id))
+    body = {"body": "@Maya Chen and @Priya can you sanity-check exercise 3.3?"}
+    comment = client.post(f"/api/tasks/{task['id']}/comments", json=body, headers=alex).json()
+    assert comment["mentions"] == [maya_id, priya_id]
+    maya_notes = notifications_for(db, maya_id)[maya_before:]
+    assert [n.title for n in maya_notes] == [f"Alex Rivera mentioned you on {task['key']}"]
+    assert "mentioned you" in notifications_for(db, priya_id)[-1].title
+
+    priya_count = len(notifications_for(db, priya_id))
+    edited = client.patch(
+        f"/api/tasks/{task['id']}/comments/{comment['id']}",
+        json={"body": "@Maya Chen, @Priya and @Jonas can you sanity-check exercise 3.3?"},
+        headers=alex,
+    ).json()
+    assert edited["edited_at"] == "2022-03-14T09:00:00"
+    assert len(notifications_for(db, priya_id)) == priya_count
+    assert "mentioned you" in notifications_for(db, jonas_id)[-1].title
+
+
+def test_comment_permissions(client, alex, sam, maya, northwind):
+    task = find_task(client, alex, northwind, "Finish gradient descent exercises")
+    url = f"/api/tasks/{task['id']}/comments"
+    maya_comment = client.get(url, headers=alex).json()[0]
+    assert maya_comment["author"]["name"] == "Maya Chen"
+    assert maya_comment["can_edit"] is False and maya_comment["can_delete"] is True  # Alex is admin
+    assert client.patch(f"{url}/{maya_comment['id']}", json={"body": "hijack"}, headers=alex).status_code == 403
+
+    sam_comment = client.post(url, json={"body": "Following along"}, headers=sam).json()
+    as_sam = client.get(url, headers=sam).json()
+    assert [c["can_delete"] for c in as_sam if c["id"] == maya_comment["id"]] == [False]
+    assert client.delete(f"{url}/{maya_comment['id']}", headers=sam).status_code == 403
+    assert client.delete(f"{url}/{sam_comment['id']}", headers=maya).status_code == 204  # owner moderates
+    assert client.delete(f"{url}/{maya_comment['id']}", headers=alex).status_code == 204
+    assert client.post(url, json={"body": "  "}, headers=sam).status_code == 422
+    remaining = find_task(client, alex, northwind, "Finish gradient descent exercises")["comment_count"]
+    assert remaining == 1
+
+
+# ---------- Labels ----------
+
+
+def test_label_crud_for_admins(client, alex, northwind):
+    url = f"/api/workspaces/{northwind}/labels"
+    created = client.post(url, json={"name": " Revision ", "color": "#AABBCC"}, headers=alex)
+    assert created.status_code == 201
+    label = created.json()
+    assert (label["name"], label["color"], label["task_count"]) == ("Revision", "#aabbcc", 0)
+
+    assert client.post(url, json={"name": "revision"}, headers=alex).status_code == 409
+    assert client.post(url, json={"name": "Colourful", "color": "red"}, headers=alex).status_code == 422
+    assert client.post(url, json={"name": ""}, headers=alex).status_code == 422
+    assert client.patch(f"/api/labels/{label['id']}", json={"name": "reading"}, headers=alex).status_code == 409
+
+    renamed = client.patch(f"/api/labels/{label['id']}", json={"name": "Revision week"}, headers=alex).json()
+    assert renamed["name"] == "Revision week"
+    assert [x["name"] for x in client.get(url, headers=alex).json()].count("Revision week") == 1
+
+
+def test_learners_cannot_manage_labels(client, sam, northwind):
+    url = f"/api/workspaces/{northwind}/labels"
+    assert client.get(url, headers=sam).status_code == 200
+    assert client.post(url, json={"name": "Mine"}, headers=sam).status_code == 403
+    reading = next(x for x in client.get(url, headers=sam).json() if x["name"] == "Reading")
+    assert client.patch(f"/api/labels/{reading['id']}", json={"name": "X"}, headers=sam).status_code == 403
+    assert client.delete(f"/api/labels/{reading['id']}", headers=sam).status_code == 403
+
+
+def test_deleting_a_label_removes_it_from_tasks(client, alex, northwind):
+    blocked = label_id(client, alex, northwind, "Blocked")
+    assert client.delete(f"/api/labels/{blocked}", headers=alex).status_code == 204
+    task = find_task(client, alex, northwind, "Normalise the Northwind orders schema to 3NF")
+    assert [label["name"] for label in task["labels"]] == ["Project"]
+    assert client.delete(f"/api/labels/{blocked}", headers=alex).status_code == 404
