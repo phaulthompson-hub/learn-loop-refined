@@ -121,3 +121,91 @@ def test_all_terms_must_match(client, alex, northwind):
     assert search(client, alex, northwind, f"joins {WORD}")["total"] == 0
 
 
+def test_snippets_come_from_the_matching_field(client, alex, northwind):
+    result = search(client, alex, northwind, "harmonic", types="note")
+    (hit,) = group(result, "note")
+    assert hit["title"] == "Precision vs recall"
+    text = hit["snippet"]["text"]
+    assert [text[s:e] for s, e in hit["snippet"]["highlights"]] == ["harmonic"]
+    assert hit["title_highlights"] == []
+
+
+def test_courses_match_on_description_and_tags(client, alex, northwind):
+    result = search(client, alex, northwind, "normalization", types="course")
+    (course,) = group(result, "course")
+    assert course["title"] == "Relational Databases & SQL"
+    assert course["subtitle"] == "Data Engineering · Intermediate"
+    assert course["snippet"]["text"].startswith("Keys, joins, aggregation")
+
+
+def test_counts_include_results_beyond_the_limit(client, alex, northwind, db):
+    for index in range(3):
+        add_task(db, northwind, f"Review {WORD} chapter {index + 1}")
+    result = search(client, alex, northwind, WORD, limit=2)
+    assert result["counts"]["task"] == 3
+    assert len(group(result, "task")) == 2
+
+
+# ---------- Other result types ----------
+
+
+def test_tasks_link_to_the_board_by_number(client, alex, northwind, db):
+    task = add_task(db, northwind, "Prepare quiz", description=f"Cover the {WORD} examples first")
+    (hit,) = group(search(client, alex, northwind, WORD), "task")
+    assert hit["link"] == f"/board?task={task.number}"
+    assert hit["subtitle"] == f"NDA-{task.number} · In progress"
+    assert WORD in hit["snippet"]["text"]
+
+
+def test_flashcards_link_to_their_deck(client, alex, northwind, db, ml_course):
+    card = add_card(db, ml_course["id"], f"What does {WORD} measure?", "Nothing, it is a made-up word.")
+    (hit,) = group(search(client, alex, northwind, WORD), "card")
+    assert hit["id"] == card.id
+    assert hit["link"] == f"/decks/{card.deck_id}"
+    assert hit["subtitle"] == "Search test deck · Introduction to Machine Learning"
+
+
+def test_events_show_own_and_shared_only(client, sam, northwind, db):
+    add_event(db, northwind, "maya@learnloop.dev", f"Private {WORD} prep", shared=False)
+    shared = add_event(db, northwind, "maya@learnloop.dev", f"{WORD.title()} midterm", shared=True)
+    (hit,) = group(search(client, sam, northwind, WORD), "event")
+    assert hit["id"] == shared.id
+    assert hit["link"] == "/planner?date=2022-03-17"
+    assert hit["subtitle"] == "Exam · Thu 17 Mar, 14:30"
+
+
+# ---------- Visibility ----------
+
+
+def test_draft_courses_and_their_content_are_hidden_from_learners(client, alex, sam, northwind, db):
+    viz = find_course(client, alex, northwind, "Data Visualization Principles")
+    add_card(db, viz["id"], f"{WORD} chart question", "answer")
+    learner = search(client, sam, northwind, "visualization principles")
+    assert "Data Visualization Principles" not in titles(learner, "course")
+    assert search(client, sam, northwind, WORD)["counts"]["card"] == 0
+    admin = search(client, alex, northwind, "visualization principles")
+    course = group(admin, "course")[0]
+    assert course["title"] == "Data Visualization Principles" and course["subtitle"].endswith("Draft")
+    assert search(client, alex, northwind, WORD)["counts"]["card"] == 1
+
+
+def test_private_notes_are_only_found_by_their_author(client, alex, sam, northwind):
+    assert "Loss functions compared" not in titles(search(client, sam, northwind, "loss functions"), "note")
+    assert "Loss functions compared" in titles(search(client, alex, northwind, "loss functions"), "note")
+    assert "Interview prep" not in titles(search(client, alex, northwind, "interview"), "note")
+    mine = group(search(client, sam, northwind, "interview"), "note")
+    assert [n["title"] for n in mine] == ["Interview prep"] and mine[0]["subtitle"] == "Note"
+
+
+def test_shared_notes_name_their_author(client, sam, northwind):
+    backprop = group(search(client, sam, northwind, "backprop", types="note"), "note")[0]
+    assert backprop["subtitle"] == "Neural Networks in Practice · by Maya Chen"
+
+
+def test_results_stay_inside_the_workspace(client, alex, northwind, biology):
+    assert search(client, alex, northwind, "punnett")["counts"]["note"] == 0
+    assert titles(search(client, alex, biology, "punnett"), "note")[0] == "Punnett square walkthrough"
+
+
+def test_archived_notes_are_not_searched(client, alex, northwind):
+    assert search(client, alex, northwind, "reading list", types="note")["counts"]["note"] == 0
