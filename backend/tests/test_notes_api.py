@@ -251,3 +251,154 @@ def test_create_rejects_invalid_input(client, alex, northwind, body):
     assert response.status_code == 422
 
 
+def test_create_accepts_the_largest_valid_body_and_tags(client, alex, northwind):
+    note = create(client, alex, northwind, body="x" * 50_000, tags=[f"tag-{i}" for i in range(10)])
+    assert len(note["body"]) == 50_000 and len(note["tags"]) == 10
+
+
+def test_titles_are_unique_per_author_case_insensitively(client, alex, sam, northwind):
+    response = client.post(notes_url(northwind), json={"title": "sql JOINS field guide"}, headers=alex)
+    assert response.status_code == 409
+    # Another author may reuse the title.
+    create(client, sam, northwind, title="SQL joins field guide")
+
+
+def test_course_and_concept_must_belong_together_and_to_the_workspace(client, alex, sam, northwind, biology):
+    cells = find_course(client, alex, biology, "Cell Biology")
+    ml = course_detail(client, alex, find_course(client, alex, northwind, "Introduction to Machine Learning")["id"])
+    stats = find_course(client, alex, northwind, "Statistics Fundamentals")
+
+    def post(headers, **body):
+        return client.post(notes_url(northwind), json={"title": "Placed", **body}, headers=headers)
+
+    assert post(alex, course_id=cells["id"]).status_code == 422
+    assert post(alex, course_id=999_999).status_code == 422
+    assert post(alex, concept_id=999_999).status_code == 422
+    assert post(alex, course_id=stats["id"], concept_id=ml["concepts"][0]["id"]).status_code == 422
+    viz = find_course(client, alex, northwind, "Data Visualization Principles")
+    assert post(sam, course_id=viz["id"]).status_code == 422  # draft course hidden from learners
+    assert post(alex, course_id=viz["id"]).status_code == 201  # admins can see drafts
+
+
+def test_creating_a_shared_note_records_activity(client, alex, northwind, db):
+    note = create(client, alex, northwind, title="Team glossary", shared=True)
+    activity = db.scalars(
+        select(Activity).where(Activity.verb == "note.shared", Activity.object_id == note["id"])
+    ).one()
+    assert activity.link == f"/notes/{note['id']}"
+    assert activity.summary == "shared the note Team glossary"
+
+
+# ---------- Update ----------
+
+
+def test_update_fields_and_bump_updated_at(client, alex, northwind):
+    note = find_note(client, alex, northwind, "Overfitting checklist")
+    response = client.patch(
+        f"/api/notes/{note['id']}", json={"body": "# New body", "tags": "ml, Exam Prep"}, headers=alex
+    )
+    assert response.status_code == 200
+    updated = response.json()
+    assert updated["body"] == "# New body"
+    assert updated["tags"] == ["ml", "exam-prep"]
+    assert updated["updated_at"] == NOW
+
+
+def test_update_without_changes_keeps_updated_at(client, alex, northwind):
+    note = find_note(client, alex, northwind, "Overfitting checklist")
+    response = client.patch(f"/api/notes/{note['id']}", json={"title": note["title"]}, headers=alex)
+    assert response.json()["updated_at"] == note["updated_at"] != NOW
+
+
+def test_rename_rewrites_links_in_the_authors_other_notes(client, alex, northwind, db):
+    losses = find_note(client, alex, northwind, "Loss functions compared")
+    gradient = find_note(client, alex, northwind, "Gradient descent cheat sheet")
+    response = client.patch(f"/api/notes/{losses['id']}", json={"title": "Loss functions"}, headers=alex)
+    assert response.status_code == 200
+    body = client.get(f"/api/notes/{gradient['id']}", headers=alex).json()
+    assert "[[Loss functions]]" in body["body"] and "[[Loss functions compared]]" not in body["body"]
+    assert body["updated_at"] == gradient["updated_at"]  # link bookkeeping is not an edit
+    plan = db.scalars(select(Note).where(Note.title == "Weekly study plan: March")).one()
+    assert "[[Loss functions]]" in plan.body
+
+
+def test_rename_to_an_existing_title_conflicts(client, alex, northwind):
+    note = find_note(client, alex, northwind, "Overfitting checklist")
+    response = client.patch(f"/api/notes/{note['id']}", json={"title": "precision VS recall"}, headers=alex)
+    assert response.status_code == 409
+
+
+def test_changing_the_course_clears_a_concept_from_the_old_course(client, alex, northwind):
+    note = find_note(client, alex, northwind, "Gradient descent cheat sheet")
+    stats = find_course(client, alex, northwind, "Statistics Fundamentals")
+    moved = client.patch(f"/api/notes/{note['id']}", json={"course_id": stats["id"]}, headers=alex).json()
+    assert moved["course"]["id"] == stats["id"] and moved["concept"] is None
+    cleared = client.patch(f"/api/notes/{note['id']}", json={"course_id": None}, headers=alex).json()
+    assert cleared["course"] is None
+
+
+def test_sharing_records_activity_once(client, alex, northwind, db):
+    note = find_note(client, alex, northwind, "Loss functions compared")
+    for shared in (True, True, False):
+        assert client.patch(f"/api/notes/{note['id']}", json={"shared": shared}, headers=alex).status_code == 200
+    rows = db.scalars(select(Activity).where(Activity.verb == "note.shared", Activity.object_id == note["id"])).all()
+    assert len(rows) == 1
+
+
+# ---------- Pin, archive, duplicate, delete ----------
+
+
+def test_pin_and_unpin(client, alex, northwind):
+    note = find_note(client, alex, northwind, "Precision vs recall")
+    assert client.post(f"/api/notes/{note['id']}/pin", headers=alex).json()["pinned"] is True
+    assert list_notes(client, alex, northwind)["items"][0]["pinned"] is True
+    assert client.delete(f"/api/notes/{note['id']}/pin", headers=alex).json()["pinned"] is False
+
+
+def test_archive_unpins_hides_from_others_and_restore_brings_it_back(client, alex, sam, northwind):
+    note = find_note(client, alex, northwind, "SQL joins field guide")
+    archived = client.post(f"/api/notes/{note['id']}/archive", headers=alex).json()
+    assert archived["archived"] is True and archived["pinned"] is False
+    assert client.get(f"/api/notes/{note['id']}", headers=sam).status_code == 404
+    assert client.post(f"/api/notes/{note['id']}/pin", headers=alex).status_code == 409
+    assert list_notes(client, alex, northwind, archived=True)["counts"]["archived"] == 2
+    restored = client.post(f"/api/notes/{note['id']}/restore", headers=alex).json()
+    assert restored["archived"] is False
+    assert client.get(f"/api/notes/{note['id']}", headers=sam).status_code == 200
+
+
+def test_duplicate_copies_into_the_callers_private_collection(client, alex, sam, northwind):
+    original = find_note(client, alex, northwind, "SQL joins field guide")
+    first = client.post(f"/api/notes/{original['id']}/duplicate", headers=sam)
+    assert first.status_code == 201
+    copy = first.json()
+    assert copy["title"] == "SQL joins field guide (copy)"
+    assert copy["author"]["name"] == "Sam Okafor"
+    assert copy["mine"] and not copy["shared"] and not copy["pinned"]
+    assert copy["course"] == original["course"] and copy["tags"] == original["tags"]
+    second = client.post(f"/api/notes/{original['id']}/duplicate", headers=sam).json()
+    assert second["title"] == "SQL joins field guide (copy 2)"
+    private = find_note(client, alex, northwind, "Loss functions compared")
+    assert client.post(f"/api/notes/{private['id']}/duplicate", headers=sam).status_code == 404
+
+
+def test_duplicate_keeps_long_titles_within_the_limit(client, alex, northwind):
+    note = create(client, alex, northwind, title="t" * 160)
+    copy = client.post(f"/api/notes/{note['id']}/duplicate", headers=alex).json()
+    assert len(copy["title"]) == 160 and copy["title"].endswith(" (copy)")
+
+
+def test_delete_note(client, alex, northwind):
+    note = create(client, alex, northwind, title="Temporary")
+    assert client.delete(f"/api/notes/{note['id']}", headers=alex).status_code == 204
+    assert client.get(f"/api/notes/{note['id']}", headers=alex).status_code == 404
+    assert client.delete(f"/api/notes/{note['id']}", headers=alex).status_code == 404
+
+
+def test_excerpt_skips_a_heading_that_repeats_the_title():
+    from app.routers.notes import body_without_title
+
+    assert body_without_title("SQL joins", "# SQL joins\nEvery join matches rows.") == "Every join matches rows."
+    assert body_without_title("SQL joins", "## sql JOINS \nBody") == "Body"
+    assert body_without_title("SQL joins", "# Other heading\nBody") == "# Other heading\nBody"
+    assert body_without_title("SQL joins", "Plain first line") == "Plain first line"
