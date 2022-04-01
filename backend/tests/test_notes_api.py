@@ -123,3 +123,131 @@ def test_summary_fields(client, alex, northwind):
     assert "```" not in note["excerpt"]["text"] and "#" not in note["excerpt"]["text"]
 
 
+def test_tag_counts_cover_visible_active_notes(client, alex, sam, northwind):
+    tags = client.get(f"{notes_url(northwind)}/tags", headers=alex).json()
+    assert tags[0] == {"tag": "sql", "count": 5}
+    counts = {t["tag"]: t["count"] for t in tags}
+    assert counts["ml"] == 4  # the archived reading list is not counted
+    assert counts["cheat-sheet"] == 3
+    assert "career" not in counts  # Sam's private note
+    assert "career" in {t["tag"] for t in client.get(f"{notes_url(northwind)}/tags", headers=sam).json()}
+
+
+def test_titles_list_readable_notes_alphabetically(client, sam, northwind):
+    titles = client.get(f"{notes_url(northwind)}/titles", headers=sam).json()
+    names = [t["title"] for t in titles]
+    assert names == sorted(names, key=str.casefold)
+    assert "Interview prep" in names and "SQL joins field guide" in names
+    assert "Loss functions compared" not in names
+    assert next(t for t in titles if t["title"] == "Interview prep")["mine"] is True
+
+
+def test_non_members_cannot_list_or_read(client, alex, northwind, newcomer):
+    headers, _ = newcomer
+    assert client.get(notes_url(northwind), headers=headers).status_code == 404
+    note = find_note(client, alex, northwind, "SQL joins field guide")
+    assert client.get(f"/api/notes/{note['id']}", headers=headers).status_code == 404
+
+
+# ---------- Detail, links and permissions ----------
+
+
+def test_detail_resolves_links_and_flags_unresolved_ones(client, alex, northwind):
+    note = find_note(client, alex, northwind, "Window functions scratchpad")
+    detail = client.get(f"/api/notes/{note['id']}", headers=alex).json()
+    joins = find_note(client, alex, northwind, "SQL joins field guide")
+    assert detail["body"].startswith("# Window functions scratchpad")
+    assert detail["can_edit"] is True
+    assert detail["links"] == [
+        {"target": "Query plans", "label": "Query plans", "heading": None, "note_id": None, "resolved": False},
+        {
+            "target": "SQL joins field guide",
+            "label": "SQL joins field guide",
+            "heading": None,
+            "note_id": joins["id"],
+            "resolved": True,
+        },
+    ]
+
+
+def test_links_only_resolve_to_notes_the_viewer_can_read(client, alex, sam, northwind):
+    plan = find_note(client, alex, northwind, "Gradient descent cheat sheet")
+    by_target = {link["target"]: link for link in client.get(f"/api/notes/{plan['id']}", headers=sam).json()["links"]}
+    assert by_target["Backprop derivation notes"]["resolved"] is True
+    assert by_target["Loss functions compared"]["resolved"] is False  # Alex's private note
+
+
+def test_others_can_read_shared_notes_but_not_change_them(client, alex, sam, northwind):
+    shared = find_note(client, alex, northwind, "SQL joins field guide")
+    private = find_note(client, alex, northwind, "Loss functions compared")
+    detail = client.get(f"/api/notes/{shared['id']}", headers=sam)
+    assert detail.status_code == 200 and detail.json()["can_edit"] is False
+    assert client.get(f"/api/notes/{private['id']}", headers=sam).status_code == 404
+    assert client.patch(f"/api/notes/{shared['id']}", json={"title": "Mine now"}, headers=sam).status_code == 403
+    assert client.delete(f"/api/notes/{shared['id']}", headers=sam).status_code == 403
+    assert client.post(f"/api/notes/{shared['id']}/pin", headers=sam).status_code == 403
+    assert client.post(f"/api/notes/{shared['id']}/archive", headers=sam).status_code == 403
+
+
+def test_backlinks_list_linking_notes_with_context(client, alex, sam, northwind):
+    note = find_note(client, alex, northwind, "Gradient descent cheat sheet")
+    backlinks = client.get(f"/api/notes/{note['id']}/backlinks", headers=alex).json()
+    assert {b["title"] for b in backlinks} == {
+        "Loss functions compared",
+        "Weekly study plan: March",
+        "Backprop derivation notes",
+    }
+    assert [b["updated_at"] for b in backlinks] == sorted((b["updated_at"] for b in backlinks), reverse=True)
+    losses = next(b for b in backlinks if b["title"] == "Loss functions compared")
+    (start, end), *_ = losses["context"]["highlights"]
+    assert losses["context"]["text"][start:end] == "[[Gradient descent cheat sheet|gradient descent]]"
+    detail = client.get(f"/api/notes/{note['id']}", headers=alex).json()
+    assert detail["backlinks"] == 3
+    # Sam only sees backlinks from notes he can read.
+    assert [b["title"] for b in client.get(f"/api/notes/{note['id']}/backlinks", headers=sam).json()] == [
+        "Backprop derivation notes"
+    ]
+
+
+# ---------- Create and validate ----------
+
+
+def test_create_note_with_placement_and_normalised_tags(client, alex, northwind):
+    ml = course_detail(client, alex, find_course(client, alex, northwind, "Introduction to Machine Learning")["id"])
+    concept = concept_named(ml, "Loss Function")
+    note = create(
+        client,
+        alex,
+        northwind,
+        title="  Regularisation ideas ",
+        body="Links to [[Overfitting checklist]] and [[Nowhere]].",
+        tags=["#Machine Learning", "SQL", "sql", " ", "l2/penalty"],
+        concept_id=concept["id"],
+    )
+    assert note["title"] == "Regularisation ideas"
+    assert note["tags"] == ["machine-learning", "sql", "l2penalty"]
+    assert note["course"]["id"] == ml["id"]  # implied by the concept
+    assert note["concept"]["id"] == concept["id"]
+    assert note["created_at"] == note["updated_at"] == NOW
+    assert note["mine"] and note["can_edit"] and not note["shared"]
+    assert [(link["target"], link["resolved"]) for link in note["links"]] == [
+        ("Overfitting checklist", True),
+        ("Nowhere", False),
+    ]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"title": "   "},
+        {"title": "x" * 161},
+        {"body": "x" * 50_001},
+        {"tags": ["x" * 25]},
+        {"tags": [f"t{i}" for i in range(11)]},
+    ],
+)
+def test_create_rejects_invalid_input(client, alex, northwind, body):
+    response = client.post(notes_url(northwind), json={"title": "Valid", **body}, headers=alex)
+    assert response.status_code == 422
+
+
