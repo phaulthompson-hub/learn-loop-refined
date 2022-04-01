@@ -238,3 +238,127 @@ def test_learners_can_create_tasks(client, sam, northwind):
 # ---------- Read ----------
 
 
+def test_get_by_id_and_number(client, alex, northwind):
+    task = find_task(client, alex, northwind, "Implement backpropagation by hand for a 2-layer net")
+    by_id = client.get(f"/api/tasks/{task['id']}", headers=alex).json()
+    by_number = client.get(f"/api/workspaces/{northwind}/tasks/by-number/{task['number']}", headers=alex).json()
+    assert by_id == by_number
+    assert [c["author"]["name"] for c in by_id["comments"]] == ["Jonas Weber", "Maya Chen", "Jonas Weber"]
+    jonas = member_id(client, alex, northwind, "Jonas")
+    assert by_id["comments"][1]["mentions"] == [jonas]
+    assert [i["position"] for i in by_id["checklist"]] == [0, 1, 2, 3, 4]
+
+
+def test_missing_and_foreign_tasks_are_404(client, alex, northwind):
+    assert client.get(f"/api/workspaces/{northwind}/tasks/by-number/999", headers=alex).status_code == 404
+    assert client.get("/api/tasks/99999", headers=alex).status_code == 404
+    task = find_task(client, alex, northwind, "Draft SQL join cheat sheet")
+    lena = login(client, "lena@learnloop.dev")
+    assert client.get(f"/api/tasks/{task['id']}", headers=lena).status_code == 404
+
+
+# ---------- Update ----------
+
+
+def test_patch_fields_and_clear_nullable_ones(client, alex, northwind):
+    task = find_task(client, alex, northwind, "Draft SQL join cheat sheet")
+    response = client.patch(
+        f"/api/tasks/{task['id']}",
+        json={"title": "Draft SQL join cheat sheet v2", "priority": "urgent", "assignee_id": None, "due_date": None},
+        headers=alex,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["title"] == "Draft SQL join cheat sheet v2"
+    assert body["priority"] == "urgent"
+    assert body["assignee"] is None and body["due_date"] is None
+    assert body["course"] is not None  # untouched fields stay
+
+
+def test_patch_labels(client, alex, northwind):
+    task = find_task(client, alex, northwind, "Draft SQL join cheat sheet")
+    exam = label_id(client, alex, northwind, "Exam prep")
+    body = client.patch(f"/api/tasks/{task['id']}", json={"label_ids": [exam]}, headers=alex).json()
+    assert [label["name"] for label in body["labels"]] == ["Exam prep"]
+    body = client.patch(f"/api/tasks/{task['id']}", json={"label_ids": []}, headers=alex).json()
+    assert body["labels"] == []
+
+
+def test_patch_status_to_done_and_back(client, alex, northwind, db):
+    task = find_task(client, alex, northwind, "Draft SQL join cheat sheet")
+    done = client.patch(f"/api/tasks/{task['id']}", json={"status": "done"}, headers=alex).json()
+    assert done["completed_at"] == "2022-03-14T09:00:00"
+    assert done["position"] > max(t["position"] for t in column(client, alex, northwind, "done")["tasks"][:-1])
+    completed = select(Activity).where(Activity.verb == "task.completed", Activity.object_id == task["id"])
+    assert db.scalars(completed).first() is not None
+    reopened = client.patch(f"/api/tasks/{task['id']}", json={"status": "todo"}, headers=alex).json()
+    assert reopened["completed_at"] is None
+
+
+def test_reassignment_notifies_new_assignee(client, alex, northwind, db):
+    task = find_task(client, alex, northwind, "Draft SQL join cheat sheet")
+    priya = member_id(client, alex, northwind, "Priya")
+    client.patch(f"/api/tasks/{task['id']}", json={"assignee_id": priya}, headers=alex)
+    note = notifications_for(db, priya)[-1]
+    assert note.kind == "task_assigned" and "Draft SQL join cheat sheet" in note.title
+    # Saving the same assignee again is not a new assignment.
+    client.patch(f"/api/tasks/{task['id']}", json={"assignee_id": priya}, headers=alex)
+    assert notifications_for(db, priya)[-1].id == note.id
+
+
+def test_patch_validation(client, alex, northwind):
+    task = find_task(client, alex, northwind, "Draft SQL join cheat sheet")
+    url = f"/api/tasks/{task['id']}"
+    assert client.patch(url, json={"assignee_id": 99999}, headers=alex).status_code == 422
+    assert client.patch(url, json={"label_ids": [99999]}, headers=alex).status_code == 422
+    assert client.patch(url, json={"title": ""}, headers=alex).status_code == 422
+    assert client.patch(url, json={"estimate": -1}, headers=alex).status_code == 422
+
+
+# ---------- Move ----------
+
+
+def move(client, headers, task_id, **payload):
+    return client.post(f"/api/tasks/{task_id}/move", json=payload, headers=headers)
+
+
+def test_move_between_neighbours(client, alex, northwind):
+    review = column(client, alex, northwind, "review")["tasks"]
+    task = find_task(client, alex, northwind, "Draft SQL join cheat sheet")
+    response = move(client, alex, task["id"], status="review", after_id=review[0]["id"], before_id=review[1]["id"])
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["rebalanced"] is False
+    assert body["task"]["status"] == "review"
+    ids = [t["id"] for t in column(client, alex, northwind, "review")["tasks"]]
+    assert ids == [review[0]["id"], task["id"], *[t["id"] for t in review[1:]]]
+    assert [c["id"] for c in body["column"]] == ids
+
+
+def test_move_to_top_by_index_and_within_column(client, alex, northwind):
+    todo = column(client, alex, northwind, "todo")["tasks"]
+    last = todo[-1]
+    assert move(client, alex, last["id"], status="todo", index=0).status_code == 200
+    ids = [t["id"] for t in column(client, alex, northwind, "todo")["tasks"]]
+    assert ids == [last["id"], *[t["id"] for t in todo[:-1]]]
+
+
+def test_move_to_done_and_out_again(client, alex, northwind, db):
+    task = find_task(client, alex, northwind, "Peer-review Priya's regression notebook")
+    done = move(client, alex, task["id"], status="done").json()["task"]
+    assert done["completed_at"] == "2022-03-14T09:00:00"
+    assert column(client, alex, northwind, "done")["tasks"][-1]["id"] == task["id"]
+    completed = select(Activity).where(Activity.verb == "task.completed", Activity.object_id == task["id"])
+    assert len(db.scalars(completed).all()) == 1
+    back = move(client, alex, task["id"], status="review", index=0).json()["task"]
+    assert back["completed_at"] is None
+
+
+def test_move_with_foreign_neighbour_is_rejected(client, alex, northwind):
+    todo = column(client, alex, northwind, "todo")["tasks"]
+    review = column(client, alex, northwind, "review")["tasks"]
+    response = move(client, alex, todo[0]["id"], status="todo", after_id=review[0]["id"])
+    assert response.status_code == 422
+    assert move(client, alex, todo[0]["id"], status="doing").status_code == 422
+
+
