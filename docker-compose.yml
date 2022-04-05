@@ -1,0 +1,38 @@
+services:
+  api:
+    build: ./backend
+    volumes:
+      - learnloop_data:/app/data
+    environment:
+      DATABASE_URL: sqlite:////app/data/learnloop.db
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      # Every "now" in the app is pinned to this instant so the seeded demo renders identically on every run.
+      # Set FROZEN_NOW= (empty) to use the real clock.
+      FROZEN_NOW: ${FROZEN_NOW-2022-03-14T09:00:00Z}
+      # Load the demo workspaces on first start (only when the database has no users).
+      SEED_ON_START: ${SEED_ON_START:-true}
+      AI_MODE: ${AI_MODE:-demo}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000/api}
+    ports:
+      - "5173:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  learnloop_data:
