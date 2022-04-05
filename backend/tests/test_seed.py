@@ -131,3 +131,48 @@ def test_enrollments_pins_and_last_opened_match_the_script(seeded_twice):
     assert opened.isoformat() == "2022-03-13T19:00:00"
 
 
+def test_demo_accounts_can_sign_in(client, seeded):
+    for _, name, email, _, _ in USERS:
+        headers = login(client, email, DEMO_PASSWORD)
+        assert client.get("/api/auth/me", headers=headers).json()["user"]["name"] == name
+
+
+def test_wrong_password_is_rejected_for_demo_accounts(client, seeded):
+    response = client.post("/api/auth/login", json={"email": "demo@learnloop.dev", "password": "nope-nope"})
+    assert response.status_code == 401
+
+
+def test_cli_rebuilds_and_prints_the_credentials(capsys):
+    assert main([]) == 0
+    out = capsys.readouterr().out
+    assert "Rebuilding the database with demo data" in out
+    assert "7 courses" in out
+    assert f"password: {DEMO_PASSWORD}" in out
+    for _, _, email, _, _ in USERS:
+        assert email in out
+    assert "frozen" in out
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Course)) == 7
+
+
+def test_cli_quiet_mode_prints_only_the_summary(capsys):
+    main(["--quiet"])
+    out = capsys.readouterr().out
+    assert "Rebuilding" not in out
+    assert "seeding" not in out
+    assert "demo@learnloop.dev" in out
+
+
+def test_cli_if_empty_leaves_existing_data_alone(seeded):
+    with SessionLocal() as db:
+        before = db.scalar(select(func.count()).select_from(Attempt))
+    assert run(["--if-empty"]).startswith("Database already has users")
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(Attempt)) == before
+
+
+def test_cli_if_empty_seeds_an_empty_database():
+    summary = run(["--if-empty"])
+    assert "Sign in with any of these accounts" in summary
+    with SessionLocal() as db:
+        assert db.scalar(select(func.count()).select_from(User)) == len(USERS)
