@@ -1,0 +1,173 @@
+/*
+ * LearnLoop design tokens and shared primitives.
+ * Identity: deep forest sidebar, lime "growth" accent, warm paper background, Manrope display type.
+ * Feature stylesheets (src/features/<feature>/*.css) must use these tokens rather than raw colours,
+ * so the dark theme ([data-theme='dark']) works everywhere.
+ */
+
+:root {
+  --ink: #17211c;
+  --ink-soft: #3a4640;
+  --muted: #6d7972;
+  --faint: #9aa59f;
+  --line: #e1e6e2;
+  --line-strong: #cfd8d2;
+  --paper: #f5f7f3;
+  --card: #ffffff;
+  --card-sunken: #f8faf7;
+  --hover: #eef3ef;
+  --brand: #1d6d45;
+  --brand-dark: #155637;
+  --brand-soft: #e5f4e8;
+  --brand-ink: #245c3a;
+  --accent: #8ee36d;
+  --accent-soft: #eefbe7;
+  --forest: #11251d;
+  --forest-2: #1e382d;
+  --forest-3: #315143;
+  --ok: #2f8f4e;
+  --ok-soft: #e8f7e5;
+  --warn: #b7791f;
+  --warn-soft: #fdf5e3;
+  --bad: #c2412d;
+  --bad-soft: #fdf1ee;
+  --info: #2c5e8a;
+  --info-soft: #e3f0fb;
+  --violet: #7c3aed;
+  --violet-soft: #f1ebfd;
+  --shadow-sm: 0 1px 2px #1e382d14;
+  --shadow: 0 8px 30px #1e382d12;
+  --shadow-lg: 0 24px 60px #0d1f1733;
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 20px;
+  --sans: 'DM Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --display: Manrope, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, 'Cascadia Code', 'SFMono-Regular', Menlo, Consolas, monospace;
+  --sidebar-width: 264px;
+  color-scheme: light;
+  font-family: var(--sans);
+  color: var(--ink);
+  background: var(--paper);
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme='dark'] {
+  --ink: #e6ede8;
+  --ink-soft: #c3cec7;
+  --muted: #95a39b;
+  --faint: #6c7a72;
+  --line: #28362f;
+  --line-strong: #34463c;
+  --paper: #0d1612;
+  --card: #141f1a;
+  --card-sunken: #111b16;
+  --hover: #1b2922;
+  --brand: #3fa56c;
+  --brand-dark: #52b77d;
+  --brand-soft: #173424;
+  --brand-ink: #9ee0b5;
+  --accent-soft: #1b3120;
+  --forest: #0a130f;
+  --forest-2: #15251d;
+  --forest-3: #24392e;
+  --ok-soft: #173322;
+  --warn-soft: #33290f;
+  --bad-soft: #3a1a14;
+  --info-soft: #152a3d;
+  --violet-soft: #251a3d;
+  --shadow: 0 8px 30px #00000040;
+  --shadow-lg: 0 24px 60px #00000080;
+  color-scheme: dark;
+}
+
+:root[data-motion='reduced'] *,
+:root[data-motion='reduced'] *::before,
+:root[data-motion='reduced'] *::after {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+body.modal-open {
+  overflow: hidden;
+}
+
+a {
+  color: var(--brand);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* Icon size only: charts and diagrams are plain <svg>s that size themselves via viewBox. */
+svg.lucide {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--display);
+  margin: 0;
+  letter-spacing: -0.3px;
+}
+
+h1 {
+  font-size: 30px;
+  letter-spacing: -0.8px;
+}
+
+h2 {
+  font-size: 20px;
+}
+
+h3 {
+  font-size: 16px;
+}
+
+p {
+  line-height: 1.55;
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 1px 5px;
+  background: var(--card);
+  color: var(--muted);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--muted);
+}
+
