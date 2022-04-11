@@ -856,3 +856,179 @@ select.input {
 
 /* ---------- Avatars ---------- */
 
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  flex: none;
+  letter-spacing: 0.3px;
+}
+
+.avatar-xs {
+  width: 22px;
+  height: 22px;
+  font-size: 9px;
+}
+
+.avatar-sm {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+
+.avatar-md {
+  width: 34px;
+  height: 34px;
+  font-size: 13px;
+}
+
+.avatar-lg {
+  width: 64px;
+  height: 64px;
+  font-size: 22px;
+}
+
+.avatar-stack {
+  display: inline-flex;
+}
+
+.avatar-stack .avatar {
+  border: 2px solid var(--card);
+  margin-left: -6px;
+}
+
+.avatar-stack .avatar:first-child {
+  margin-left: 0;
+}
+
+.avatar-more {
+  background: var(--line-strong);
+  color: var(--ink-soft);
+}
+
+/* ---------- Menu ---------- */
+
+.menu-root {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 40;
+  min-width: 220px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+}
+
+.menu-right {
+  right: 0;
+}
+
+.menu-left {
+  left: 0;
+}
+
+.menu-header {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.menu button span {
+  flex: 1;
+}
+
+.menu button small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.menu button:hover,
+.menu button:focus {
+  background: var(--hover);
+  outline: none;
+}
+
+.menu button:disabled {
+  opacity: 0.5;
+}
+
+.menu .danger-item {
+  color: var(--bad);
+}
+
+.menu hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 5px 0;
+}
+
+/* ---------- Modal & drawer ---------- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #0d1f1766;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  z-index: 100;
+  animation: fade-in 0.15s ease;
+}
+
+.modal-backdrop.is-drawer {
+  place-items: stretch end;
+  padding: 0;
+}
+
+.modal {
+  background: var(--card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 100%;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  animation: pop-in 0.18s ease;
+}
+
+.modal-sm {
+  max-width: 420px;
+}
+
+.modal-md {
+  max-width: 580px;
+}
+
+.modal-lg {
+  max-width: 860px;
+}
+
+.modal.drawer {
+  max-width: 620px;
+  height: 100vh;
+  max-height: 100vh;
+  border-radius: 0;
+  animation: slide-in 0.2s ease;
+}
+
