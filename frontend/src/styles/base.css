@@ -1206,3 +1206,58 @@ select.input {
   max-width: min(420px, calc(100vw - 40px));
 }
 
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--forest);
+  color: #eef6f0;
+  border-radius: var(--radius);
+  padding: 11px 12px 11px 14px;
+  box-shadow: var(--shadow-lg);
+  animation: pop-in 0.2s ease;
+  font-size: 14px;
+}
+
+.toast span {
+  flex: 1;
+}
+
+.toast-success svg:first-child {
+  color: var(--accent);
+}
+
+.toast-error svg:first-child {
+  color: #ff9b85;
+}
+
+.toast-info svg:first-child {
+  color: #8ec5ff;
+}
+
+/* ---------- Responsive helpers ---------- */
+
+@media (max-width: 900px) {
+  .grid-2,
+  .grid-3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  h1 {
+    font-size: 25px;
+  }
+
+  .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .modal-backdrop {
+    padding: 10px;
+    place-items: end stretch;
+  }
+
+  .modal {
+    max-height: calc(100vh - 20px);
+  }
+}
