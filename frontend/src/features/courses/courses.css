@@ -1,0 +1,171 @@
+/*
+ * Course experience: catalogue, wizard, course layout and its tabs.
+ * Colours come from the tokens in styles/base.css; a course's own colour arrives as --course-color.
+ */
+
+.course-page,
+.course-card,
+.review-card {
+  --course-color: var(--brand);
+}
+
+.inline-icon {
+  width: 14px;
+  height: 14px;
+  vertical-align: -2px;
+}
+
+.link-arrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.link-arrow svg {
+  width: 14px;
+  height: 14px;
+}
+
+.link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--brand);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: none;
+  margin-bottom: 10px;
+}
+
+.back-link:hover {
+  color: var(--ink);
+}
+
+.back-link svg {
+  width: 15px;
+  height: 15px;
+}
+
+.panel-head.compact {
+  margin-bottom: 12px;
+}
+
+.panel-head.compact .eyebrow {
+  margin: 0;
+}
+
+/* ---------- Level colours (shared by map, legends, strips and highlights) ---------- */
+
+.fill-mastered {
+  background: var(--ok);
+}
+
+.fill-proficient {
+  background: var(--info);
+}
+
+.fill-learning {
+  background: var(--warn);
+}
+
+.fill-needs-review {
+  background: var(--bad);
+}
+
+.fill-empty {
+  background: var(--line);
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.badge.difficulty-intro {
+  background: var(--accent-soft);
+  color: var(--brand-ink);
+}
+
+.badge.difficulty-intermediate {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.badge.difficulty-advanced {
+  background: var(--violet-soft);
+  color: var(--violet);
+}
+
+/* ---------- Catalogue ---------- */
+
+.catalog-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.catalog-toolbar .segmented {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.catalog-search {
+  flex: 1 1 260px;
+}
+
+.catalog-search input {
+  width: 100%;
+}
+
+.mine-toggle {
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--card);
+  font-weight: 600;
+}
+
+.mine-toggle input {
+  accent-color: var(--brand);
+}
+
+.course-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 16px;
+}
+
+.course-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 0 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
