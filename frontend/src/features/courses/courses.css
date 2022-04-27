@@ -861,3 +861,179 @@
   font-size: 13px;
 }
 
+.quiz-dots {
+  list-style: none;
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.quiz-dots li {
+  width: 28px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hover);
+}
+
+.quiz-dots .dot-current {
+  background: var(--course-color);
+}
+
+.quiz-dots .dot-correct {
+  background: var(--ok);
+}
+
+.quiz-dots .dot-wrong {
+  background: var(--bad);
+}
+
+.options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.option {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 14px;
+  background: var(--card-sunken);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  line-height: 1.45;
+  font-size: 14px;
+  transition: border-color 0.15s, background 0.15s, opacity 0.15s;
+}
+
+.option:hover:not(:disabled) {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.option:disabled {
+  cursor: default;
+}
+
+.option.pending {
+  border-color: var(--brand);
+}
+
+.option.correct {
+  border-color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.option.wrong {
+  border-color: var(--bad);
+  background: var(--bad-soft);
+}
+
+.option.dim {
+  opacity: 0.6;
+}
+
+.option-index {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  font: 700 12px var(--mono);
+}
+
+.option.correct .option-index {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #fff;
+}
+
+.option.wrong .option-index {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #fff;
+}
+
+.feedback {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+
+.feedback.ok {
+  background: var(--ok-soft);
+}
+
+.feedback.bad {
+  background: var(--bad-soft);
+}
+
+.feedback > svg {
+  width: 26px;
+  height: 26px;
+}
+
+.feedback.ok > svg {
+  color: var(--ok);
+}
+
+.feedback.bad > svg {
+  color: var(--bad);
+}
+
+.feedback-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.feedback-body p {
+  margin: 0;
+}
+
+.quiz-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin: 0;
+}
+
+.quiz-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.quiz-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.quiz-summary-head p {
+  margin: 4px 0 0;
+}
+
+.quiz-celebrate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--brand-ink);
+  font-weight: 700;
+}
+
