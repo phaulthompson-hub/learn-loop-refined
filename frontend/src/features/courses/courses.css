@@ -688,3 +688,176 @@
   stroke-width: 4;
 }
 
+.node-halo {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+  opacity: 0.8;
+  animation: halo 2.4s ease-in-out infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+@keyframes halo {
+  50% {
+    opacity: 0.25;
+    transform: scale(1.08);
+  }
+}
+
+.concept-details {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.concept-details h3 {
+  font-size: 17px;
+}
+
+.concept-details p {
+  margin: 0;
+}
+
+.concept-details-meta {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.concept-summary {
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+
+.level-distribution {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.level-stack {
+  display: flex;
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
+  gap: 2px;
+}
+
+.level-stack i {
+  flex-basis: 0;
+}
+
+.level-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 14px;
+  font-size: 13px;
+}
+
+.level-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: capitalize;
+}
+
+.level-legend b {
+  margin-left: auto;
+}
+
+.activity-chart {
+  margin: 0;
+}
+
+.activity-chart svg {
+  width: 100%;
+  height: 72px;
+  display: block;
+}
+
+.bar-bg {
+  fill: var(--card-sunken);
+}
+
+.bar-total {
+  fill: color-mix(in srgb, var(--bad) 45%, var(--line));
+}
+
+.bar-correct {
+  fill: var(--ok);
+}
+
+.activity-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.chart-skeleton {
+  height: 72px;
+}
+
+.attempt-list,
+.source-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.attempt-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.source-links li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.source-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.source-links a span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Quiz ---------- */
+
+.quiz h2 {
+  font-size: 22px;
+  margin-bottom: 4px;
+}
+
+.quiz-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+
