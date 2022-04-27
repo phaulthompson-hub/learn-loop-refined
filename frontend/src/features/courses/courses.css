@@ -518,3 +518,173 @@
   margin-bottom: 2px;
 }
 
+.next-up h2 {
+  font-size: 22px;
+}
+
+.next-up p {
+  margin: 4px 0 0;
+  color: #b9cbc1;
+}
+
+.next-up .secondary {
+  background: transparent;
+  color: #eef6f0;
+  border-color: var(--forest-3);
+}
+
+.next-up .secondary:hover {
+  background: var(--forest-2);
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.75fr) minmax(280px, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.overview-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.map-key {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.map-key li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.map-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+.concept-map {
+  width: 100%;
+  overflow: hidden;
+}
+
+.concept-map svg {
+  display: block;
+  margin: 0 auto;
+  overflow: visible;
+}
+
+.map-edge {
+  fill: none;
+  stroke: color-mix(in srgb, var(--course-color) 55%, var(--line-strong));
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.map-edge.locked {
+  stroke: var(--line-strong);
+  stroke-dasharray: 6 7;
+}
+
+.map-node {
+  cursor: pointer;
+  outline: none;
+  --node: var(--brand);
+}
+
+.map-node.node-mastered {
+  --node: var(--ok);
+}
+
+.map-node.node-proficient {
+  --node: var(--info);
+}
+
+.map-node.node-learning {
+  --node: var(--warn);
+}
+
+.map-node.node-needs-review {
+  --node: var(--bad);
+}
+
+.node-disc {
+  fill: var(--card);
+  stroke: color-mix(in srgb, var(--node) 35%, var(--line));
+  stroke-width: 2;
+  transition: stroke 0.15s, fill 0.15s;
+}
+
+.node-track {
+  fill: color-mix(in srgb, var(--node) 12%, var(--card));
+  stroke: var(--hover);
+  stroke-width: 4;
+}
+
+.node-progress {
+  fill: none;
+  stroke: var(--node);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+
+.node-number {
+  text-anchor: middle;
+  font: 800 15px var(--display);
+  fill: var(--ink);
+}
+
+.node-lock {
+  color: var(--muted);
+}
+
+.node-spark {
+  color: var(--warn);
+}
+
+.node-label {
+  text-anchor: middle;
+  font: 700 12.5px var(--sans);
+  fill: var(--ink);
+}
+
+.node-mastery {
+  text-anchor: middle;
+  font: 600 11px var(--sans);
+  fill: var(--muted);
+}
+
+.map-node.locked .node-disc {
+  fill: var(--card-sunken);
+  stroke: var(--line-strong);
+  stroke-dasharray: 3 3;
+}
+
+.map-node.locked .node-label {
+  fill: var(--muted);
+}
+
+.map-node:hover .node-disc {
+  stroke: var(--node);
+}
+
+.map-node.selected .node-disc {
+  stroke: var(--ink);
+  stroke-width: 3;
+}
+
+.map-node:focus-visible .node-disc {
+  stroke: var(--brand);
+  stroke-width: 4;
+}
+
