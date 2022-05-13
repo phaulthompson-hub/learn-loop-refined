@@ -137,3 +137,174 @@ function MaterialStep({ state, errors, onChange }: { state: WizardState; errors:
   );
 }
 
+function ReviewStep({ state, onStatus }: { state: WizardState; onStatus: (status: WizardState['status']) => void }) {
+  const { details } = state;
+  const stats = materialStats(state.text);
+  return (
+    <div className="stack">
+      <div className="review-card" style={{ '--course-color': details.color } as CSSProperties}>
+        <div className="course-card-band" aria-hidden="true" />
+        <p className="eyebrow">{details.subject}</p>
+        <h3>{details.title.trim()}</h3>
+        {details.description.trim() && <p className="muted">{details.description.trim()}</p>}
+        <div className="course-card-badges">
+          <DifficultyBadge difficulty={details.difficulty} />
+          {details.tags.map((tag) => (
+            <span key={tag} className="tag">
+              #{tag}
+            </span>
+          ))}
+        </div>
+      </div>
+      <dl className="review-list">
+        <div>
+          <dt>Material</dt>
+          <dd>
+            {state.mode === 'paste'
+              ? `${formatNumber(stats.characters)} characters of pasted text · ${formatNumber(stats.words)} words · ${stats.sentences} sentences`
+              : state.file
+                ? `${state.file.name} (${formatBytes(state.file.size)})`
+                : 'No file chosen'}
+          </dd>
+        </div>
+        <div>
+          <dt>What happens next</dt>
+          <dd>
+            <Wand2 className="inline-icon" /> Up to six concepts are extracted and ordered into a learning path. Each one unlocks when the previous reaches
+            60%, and quizzes adapt to every learner's weakest concept.
+          </dd>
+        </div>
+      </dl>
+      <fieldset className="fieldset">
+        <legend>Visibility</legend>
+        <div className="choice-cards">
+          <label className={cx('choice-card', state.status === 'active' && 'selected')}>
+            <input type="radio" name="status" checked={state.status === 'active'} onChange={() => onStatus('active')} />
+            <b>Publish now</b>
+            <small>Every member of the workspace can find and follow it.</small>
+          </label>
+          <label className={cx('choice-card', state.status === 'draft' && 'selected')}>
+            <input type="radio" name="status" checked={state.status === 'draft'} onChange={() => onStatus('draft')} />
+            <b>
+              <Lock className="inline-icon" /> Save as draft
+            </b>
+            <small>Only instructors see it until you publish it from Settings.</small>
+          </label>
+        </div>
+      </fieldset>
+    </div>
+  );
+}
+
+export function NewCoursePage() {
+  const workspace = useWorkspace();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [state, setState] = useState<WizardState>(() => initialWizard());
+  const [step, setStep] = useState<WizardStep>('details');
+  const [completed, setCompleted] = useState<Set<WizardStep>>(new Set());
+  const [errors, setErrors] = useState<WizardErrors>({});
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (!workspace.can('instructor')) {
+    return (
+      <EmptyState icon={<Lock />} title="Only instructors can create courses">
+        <p>Ask an instructor or admin of {workspace.name} to add the material, or to give you the instructor role.</p>
+        <Link className="secondary" to="/courses">
+          <ArrowLeft /> Back to courses
+        </Link>
+      </EmptyState>
+    );
+  }
+
+  const index = STEPS.findIndex((s) => s.key === step);
+  const update = (patch: Partial<WizardState>) => {
+    setState((current) => ({ ...current, ...patch }));
+    setErrors({});
+  };
+
+  const goTo = (target: WizardStep) => {
+    setErrors({});
+    setServerError(null);
+    setStep(target);
+  };
+
+  const next = () => {
+    const found = validateStep(step, state);
+    setErrors(found);
+    if (Object.keys(found).length) return;
+    setCompleted((done) => new Set(done).add(step));
+    goTo(STEPS[index + 1].key);
+  };
+
+  const create = async () => {
+    const invalid = firstInvalidStep(state);
+    if (invalid) {
+      goTo(invalid);
+      setErrors(validateStep(invalid, state));
+      return;
+    }
+    setBusy(true);
+    setServerError(null);
+    const input = { ...state.details, title: state.details.title.trim(), subject: state.details.subject.trim(), status: state.status };
+    try {
+      const course = state.mode === 'paste' ? await courseApi.create(workspace.id, { ...input, text: state.text }) : await courseApi.upload(workspace.id, input, state.file!);
+      toast.success(`Created ${course.title} with ${course.concept_count} concepts`);
+      navigate(`/courses/${course.id}`);
+    } catch (err) {
+      setServerError(err instanceof Error ? err.message : 'Could not create the course');
+      setBusy(false);
+    }
+  };
+
+  const onSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    if (step === 'review') void create();
+    else next();
+  };
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="New course"
+        title="Turn material into a learning path"
+        subtitle={`In ${workspace.name}. Concepts, prerequisites and adaptive quizzes are generated from your text.`}
+        aside={
+          <Link className="ghost" to="/courses">
+            Cancel
+          </Link>
+        }
+      />
+      <div className="wizard">
+        <Stepper current={step} completed={completed} onSelect={goTo} />
+        <form className="panel wizard-panel" onSubmit={onSubmit} noValidate aria-labelledby="wizard-step-title">
+          <h2 id="wizard-step-title">
+            Step {index + 1} of {STEPS.length}: {STEPS[index].label}
+          </h2>
+          {serverError && <ErrorBanner message={serverError} />}
+          {step === 'details' && <DetailsStep details={state.details} errors={errors} onChange={(details) => update({ details })} />}
+          {step === 'material' && <MaterialStep state={state} errors={errors} onChange={update} />}
+          {step === 'review' && <ReviewStep state={state} onStatus={(status) => update({ status })} />}
+          <div className="wizard-actions">
+            {index > 0 && (
+              <button type="button" className="secondary" onClick={() => goTo(STEPS[index - 1].key)} disabled={busy}>
+                <ArrowLeft /> Back
+              </button>
+            )}
+            <span className="spacer" />
+            {step === 'review' ? (
+              <button type="submit" className="primary" disabled={busy}>
+                <Wand2 /> {busy ? 'Building your course…' : state.status === 'draft' ? 'Create draft' : 'Create course'}
+              </button>
+            ) : (
+              <button type="submit" className="primary">
+                Next <ArrowRight />
+              </button>
+            )}
+          </div>
+        </form>
+      </div>
+    </>
+  );
+}
