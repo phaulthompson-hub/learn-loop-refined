@@ -123,3 +123,165 @@ function DetailsForm({ course, onSaved }: { course: Course; onSaved: (course: Co
   );
 }
 
+function ConceptRow({
+  concept,
+  index,
+  count,
+  busy,
+  onMove,
+  onSave,
+}: {
+  concept: Concept;
+  index: number;
+  count: number;
+  busy: boolean;
+  onMove: (delta: number) => void;
+  onSave: (changes: { name?: string; summary?: string }) => Promise<boolean>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(concept.name);
+  const [summary, setSummary] = useState(concept.summary);
+  const [errors, setErrors] = useState<{ name?: string; summary?: string }>({});
+
+  const cancel = () => {
+    setEditing(false);
+    setName(concept.name);
+    setSummary(concept.summary);
+    setErrors({});
+  };
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault();
+    const found = { name: validateConceptName(name), summary: validateConceptSummary(summary) };
+    setErrors(found);
+    if (found.name || found.summary) return;
+    const changes: { name?: string; summary?: string } = {};
+    if (name.trim() !== concept.name) changes.name = name.trim();
+    if (summary.trim() !== concept.summary) changes.summary = summary.trim();
+    if (!Object.keys(changes).length || (await onSave(changes))) setEditing(false);
+  };
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      event.stopPropagation();
+      cancel();
+    }
+  };
+
+  return (
+    <li className="concept-row">
+      <span className="concept-order" aria-hidden="true">
+        {index + 1}
+      </span>
+      {editing ? (
+        <form className="concept-edit" onSubmit={save} onKeyDown={onKeyDown} noValidate>
+          <Field label="Name" error={errors.name} aside={`${name.trim().length}/${CONCEPT_NAME_MAX}`}>
+            <input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+          </Field>
+          <Field label="Summary" error={errors.summary} hint="Used as the correct answer in quizzes" aside={`${summary.trim().length}/${CONCEPT_SUMMARY_MAX}`}>
+            <textarea rows={3} value={summary} onChange={(e) => setSummary(e.target.value)} />
+          </Field>
+          <div className="actions">
+            <button type="submit" className="primary small" disabled={busy}>
+              <Check /> Save
+            </button>
+            <button type="button" className="ghost small" onClick={cancel}>
+              <X /> Cancel
+            </button>
+          </div>
+        </form>
+      ) : (
+        <div className="concept-row-main">
+          <div className="row">
+            <b>{concept.name}</b>
+            <LevelBadge value={concept.mastery} />
+          </div>
+          <p className="muted">{concept.summary}</p>
+        </div>
+      )}
+      {!editing && (
+        <div className="concept-row-actions">
+          <button type="button" className="icon-only" aria-label={`Move ${concept.name} up`} disabled={busy || index === 0} onClick={() => onMove(-1)}>
+            <ArrowUp />
+          </button>
+          <button type="button" className="icon-only" aria-label={`Move ${concept.name} down`} disabled={busy || index === count - 1} onClick={() => onMove(1)}>
+            <ArrowDown />
+          </button>
+          <button type="button" className="icon-only" aria-label={`Edit ${concept.name}`} onClick={() => setEditing(true)}>
+            <Pencil />
+          </button>
+        </div>
+      )}
+    </li>
+  );
+}
+
+function ConceptEditor() {
+  const { course, reload, replace } = useCourse();
+  const toast = useToast();
+  // Optimistic order while a reorder request is in flight.
+  const [pending, setPending] = useState<Concept[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const concepts = pending ?? course.concepts;
+
+  const move = async (index: number, delta: number) => {
+    const next = moveItem(concepts, index, delta);
+    setPending(next);
+    setBusy(true);
+    try {
+      const saved = await courseApi.reorderConcepts(course.id, next.map((c) => c.id));
+      replace({ ...course, concepts: saved });
+      // Unlocks and the recommendation depend on the new chain.
+      reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not reorder the concepts');
+    } finally {
+      setPending(null);
+      setBusy(false);
+    }
+  };
+
+  const save = async (concept: Concept, changes: { name?: string; summary?: string }) => {
+    setBusy(true);
+    try {
+      const saved = await courseApi.updateConcept(course.id, concept.id, changes);
+      replace({ ...course, concepts: course.concepts.map((c) => (c.id === saved.id ? saved : c)) });
+      toast.success(`Saved ${saved.name}`);
+      return true;
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not save the concept');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="panel" aria-labelledby="concepts-title">
+      <div className="panel-head">
+        <div>
+          <h2 id="concepts-title">Concepts</h2>
+          <p className="hint">The order is the learning path: each concept unlocks once the one above it reaches 60%.</p>
+        </div>
+      </div>
+      {concepts.length === 0 ? (
+        <p className="muted">No concepts yet. Add material on the Sources tab.</p>
+      ) : (
+        <ol className="concept-rows">
+          {concepts.map((concept, index) => (
+            <ConceptRow
+              key={`${concept.id}:${concept.name}:${concept.summary}`}
+              concept={concept}
+              index={index}
+              count={concepts.length}
+              busy={busy}
+              onMove={(delta) => void move(index, delta)}
+              onSave={(changes) => save(concept, changes)}
+            />
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
