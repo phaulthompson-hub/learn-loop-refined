@@ -285,3 +285,158 @@ function ConceptEditor() {
   );
 }
 
+const STATUS_ACTIONS: Record<CourseStatus, { to: CourseStatus; label: string; hint: string }[]> = {
+  draft: [{ to: 'active', label: 'Publish', hint: 'Make it visible to every learner in the workspace.' }],
+  active: [{ to: 'archived', label: 'Archive', hint: 'Hide it from the active catalogue; progress is kept.' }],
+  archived: [{ to: 'active', label: 'Restore', hint: 'Bring it back to the active catalogue.' }],
+};
+
+export function SettingsPage() {
+  const { course, replace, canEdit, canDelete, role } = useCourse();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const [dialog, setDialog] = useState<'duplicate' | 'reset' | 'delete' | null>(null);
+  const [confirmText, setConfirmText] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  if (!canEdit) {
+    return (
+      <EmptyState icon={<ShieldAlert />} title="Only editors can change this course">
+        <p>Ask the course owner or an instructor if something needs fixing.</p>
+      </EmptyState>
+    );
+  }
+
+  const act = async (action: () => Promise<void>, failure: string) => {
+    setBusy(true);
+    try {
+      await action();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : failure);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setStatus = (status: CourseStatus) =>
+    act(async () => {
+      replace(await courseApi.update(course.id, { status }));
+      toast.success(status === 'archived' ? 'Course archived' : status === 'active' ? 'Course is live' : 'Saved');
+    }, 'Could not change the status');
+
+  const reset = () =>
+    act(async () => {
+      const result = await courseApi.resetProgress(course.id);
+      replace(result.course);
+      setDialog(null);
+      toast.success(`Progress reset: ${plural(result.attempts_cleared, 'answer')} cleared`);
+    }, 'Could not reset your progress');
+
+  const remove = () =>
+    act(async () => {
+      await courseApi.remove(course.id);
+      toast.success(`Deleted ${course.title}`);
+      navigate('/courses', { replace: true });
+    }, 'Could not delete the course');
+
+  return (
+    <div className="course-settings-grid">
+      <div className="stack">
+        {/* Remount (dropping the draft) only when the saved details themselves change. */}
+        <DetailsForm key={JSON.stringify(detailsOf(course))} course={course} onSaved={replace} />
+        <ConceptEditor />
+      </div>
+      <div className="stack">
+        <section className="panel settings-actions" aria-labelledby="lifecycle-title">
+          <h2 id="lifecycle-title">Lifecycle</h2>
+          {STATUS_ACTIONS[course.status].map((action) => (
+            <div key={action.to} className="settings-action">
+              <div>
+                <b>{action.label}</b>
+                <p className="hint">{action.hint}</p>
+              </div>
+              <button type="button" className="secondary small" disabled={busy} onClick={() => void setStatus(action.to)}>
+                {action.to === 'archived' ? <Archive /> : course.status === 'draft' ? <Rocket /> : <ArchiveRestore />} {action.label}
+              </button>
+            </div>
+          ))}
+          {role && role !== 'learner' && (
+            <div className="settings-action">
+              <div>
+                <b>Duplicate</b>
+                <p className="hint">Start a new draft from this course's sources and concepts.</p>
+              </div>
+              <button type="button" className="secondary small" onClick={() => setDialog('duplicate')}>
+                <Copy /> Duplicate
+              </button>
+            </div>
+          )}
+          <div className="settings-action">
+            <div>
+              <b>Reset my progress</b>
+              <p className="hint">Clears your own answers and mastery here. Learners are not affected.</p>
+            </div>
+            <button type="button" className="secondary small" onClick={() => setDialog('reset')}>
+              <RotateCcw /> Reset
+            </button>
+          </div>
+        </section>
+        {canDelete && (
+          <section className="panel course-danger-zone" aria-labelledby="danger-title">
+            <h2 id="danger-title">Danger zone</h2>
+            <div className="settings-action">
+              <div>
+                <b>Delete course</b>
+                <p className="hint">Removes the course, its sources and every learner's progress. This cannot be undone.</p>
+              </div>
+              <button type="button" className="danger small" onClick={() => setDialog('delete')}>
+                <Trash2 /> Delete
+              </button>
+            </div>
+          </section>
+        )}
+      </div>
+
+      {dialog === 'duplicate' && <DuplicateDialog course={course} onClose={() => setDialog(null)} />}
+      {dialog === 'reset' && (
+        <ConfirmDialog
+          title="Reset your progress?"
+          message={`Your ${plural(course.attempts, 'answer')} in this course are cleared and every concept goes back to 35%.`}
+          confirmLabel="Reset progress"
+          busy={busy}
+          onConfirm={reset}
+          onCancel={() => setDialog(null)}
+        />
+      )}
+      {dialog === 'delete' && (
+        <Modal
+          title="Delete this course?"
+          size="sm"
+          onClose={() => {
+            setDialog(null);
+            setConfirmText('');
+          }}
+          footer={
+            <>
+              <button type="button" className="secondary" onClick={() => setDialog(null)}>
+                Cancel
+              </button>
+              <button type="button" className="danger solid" disabled={busy || !confirmsTitle(confirmText, course.title)} onClick={() => void remove()}>
+                <Trash2 /> {busy ? 'Deleting…' : 'Delete forever'}
+              </button>
+            </>
+          }
+        >
+          <div className="stack">
+            <p className="confirm-message">
+              {plural(course.learners, 'learner')} will lose their progress in <b>{course.title}</b>. Type the course title to confirm.
+            </p>
+            <Field label="Course title">
+              <input value={confirmText} onChange={(e) => setConfirmText(e.target.value)} placeholder={course.title} autoComplete="off" data-autofocus />
+            </Field>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
