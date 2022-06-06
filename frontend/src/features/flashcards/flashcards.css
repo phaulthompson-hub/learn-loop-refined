@@ -703,3 +703,177 @@
   border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
 }
 
+.fc-face-meta {
+  position: absolute;
+  top: 16px;
+  left: 18px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: left;
+}
+
+.fc-face-text {
+  margin: 0;
+  font: 700 clamp(19px, 3.2vw, 26px) / 1.4 var(--display);
+  letter-spacing: -0.3px;
+  white-space: pre-line;
+}
+
+.fc-face-back .fc-face-text {
+  font: 500 clamp(17px, 2.6vw, 21px) / 1.55 var(--sans);
+}
+
+.fc-face-question {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--line-strong);
+}
+
+.fc-hint {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  font-size: 14px;
+}
+
+.fc-hint p {
+  margin: 0;
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+
+.fc-hint svg {
+  width: 15px;
+  height: 15px;
+}
+
+.fc-flip-sm .fc-face {
+  min-height: 190px;
+  padding: 20px;
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.fc-flip-sm .fc-face-text {
+  font-size: 17px;
+}
+
+.fc-flip-sm .fc-face-back .fc-face-text {
+  font-size: 15px;
+}
+
+.fc-flip-sm .fc-face-meta {
+  position: static;
+}
+
+/* ---------- Study view ---------- */
+
+.fc-study {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.fc-study-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fc-study-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fc-study-title b {
+  font-family: var(--display);
+  font-size: 17px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-study-title span {
+  font-size: 13px;
+}
+
+.fc-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--hover);
+  overflow: hidden;
+}
+
+.fc-progress i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--brand), var(--accent));
+  transition: width 0.35s ease;
+}
+
+.fc-study-counts {
+  list-style: none;
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.fc-study-counts b {
+  font-size: 15px;
+}
+
+.fc-study-counts .is-review b {
+  color: var(--ok);
+}
+
+.fc-study-counts .is-learning b {
+  color: var(--bad);
+}
+
+.fc-study-counts .is-new b {
+  color: var(--info);
+}
+
+.fc-gradebar {
+  display: flex;
+  justify-content: center;
+}
+
+.fc-show-answer {
+  min-width: 260px;
+  padding: 14px 22px;
+  font-size: 15px;
+}
+
+.fc-show-answer kbd {
+  background: transparent;
+  color: inherit;
+  border-color: color-mix(in srgb, #fff 45%, transparent);
+}
+
+.fc-grades {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
