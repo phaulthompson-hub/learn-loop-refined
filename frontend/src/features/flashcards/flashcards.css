@@ -170,3 +170,188 @@
   background: var(--deck-color);
 }
 
+.fc-deck:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+.fc-deck header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.fc-deck h3 a {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.fc-deck h3 a:hover {
+  color: var(--brand);
+}
+
+/* Make the whole tile clickable while keeping the study button on top. */
+.fc-deck h3 a::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.fc-deck footer a {
+  position: relative;
+  z-index: 1;
+}
+
+.fc-deck-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.fc-deck-badges .badge {
+  text-transform: none;
+}
+
+.fc-deck-description {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+  min-height: 2.9em;
+}
+
+.fc-deck-mastery {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fc-deck-mastery small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.fc-deck-mastery b {
+  color: var(--ink);
+}
+
+.fc-deck footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  margin-top: auto;
+}
+
+.fc-deck-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ok);
+}
+
+/* ---------- Forecast chart ---------- */
+
+.fc-forecast {
+  margin: 0;
+}
+
+.fc-forecast-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  gap: 4px;
+  height: 118px;
+  align-items: end;
+}
+
+.fc-forecast-bars li {
+  height: 100%;
+  display: grid;
+  grid-template-rows: 16px 1fr 16px;
+  align-items: end;
+  justify-items: center;
+  gap: 3px;
+}
+
+.fc-forecast-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.fc-forecast-bar {
+  width: 100%;
+  max-width: 22px;
+  border-radius: 5px 5px 2px 2px;
+  background: color-mix(in srgb, var(--brand) 45%, var(--card));
+  align-self: end;
+}
+
+.fc-forecast-bars li.is-empty .fc-forecast-bar {
+  background: var(--hover);
+}
+
+.fc-forecast-bars li.is-today .fc-forecast-bar {
+  background: linear-gradient(180deg, var(--accent), var(--brand));
+}
+
+.fc-forecast-day {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.fc-forecast-bars li.is-today .fc-forecast-day {
+  color: var(--brand-ink);
+  font-weight: 800;
+}
+
+/* ---------- Deck page ---------- */
+
+.fc-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.fc-breadcrumb a {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--muted);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.fc-breadcrumb a:hover {
+  color: var(--brand);
+}
+
+.fc-deck-hero {
+  --deck-color: var(--brand);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 22px 24px;
+  margin-bottom: 18px;
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(120deg, color-mix(in srgb, var(--deck-color) 16%, var(--card)), var(--card) 70%);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--deck-color);
+}
+
