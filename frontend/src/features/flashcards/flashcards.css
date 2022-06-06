@@ -355,3 +355,177 @@
   border-left: 5px solid var(--deck-color);
 }
 
+.fc-deck-hero > div:first-child {
+  min-width: 0;
+  flex: 1 1 360px;
+}
+
+.fc-deck-hero p {
+  margin: 6px 0 0;
+}
+
+.fc-deck-hero-description {
+  color: var(--ink-soft);
+  max-width: 70ch;
+}
+
+.fc-deck-hero .muted {
+  font-size: 13px;
+}
+
+.fc-deck-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
+  align-items: start;
+}
+
+.fc-deck-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.fc-deck-side .panel {
+  padding: 18px;
+}
+
+.fc-deck-side .panel-head {
+  margin-bottom: 12px;
+}
+
+.fc-card-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.fc-card-toolbar .search-input {
+  flex: 1 1 220px;
+  max-width: 340px;
+}
+
+.fc-card-toolbar .segmented {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.fc-cell-front {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+}
+
+.fc-cell-front b {
+  font-weight: 600;
+}
+
+.fc-cell-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.fc-cell-meta svg {
+  width: 13px;
+  height: 13px;
+  vertical-align: -2px;
+}
+
+.fc-row-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.fc-cards-panel .data-table tbody tr {
+  cursor: pointer;
+}
+
+/* Card stage breakdown */
+
+.fc-breakdown-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--hover);
+  margin-bottom: 12px;
+}
+
+.fc-breakdown-bar i {
+  flex-basis: 0;
+}
+
+.fc-breakdown ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.fc-breakdown li {
+  display: grid;
+  grid-template-columns: 12px 1fr auto 40px;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.fc-breakdown li small {
+  text-align: right;
+}
+
+.fc-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.is-new.fc-dot,
+.fc-breakdown-bar .is-new {
+  background: var(--info);
+}
+
+.is-learning.fc-dot,
+.fc-breakdown-bar .is-learning {
+  background: var(--bad);
+}
+
+.is-young.fc-dot,
+.fc-breakdown-bar .is-young {
+  background: var(--warn);
+}
+
+.is-mature.fc-dot,
+.fc-breakdown-bar .is-mature {
+  background: var(--ok);
+}
+
+/* Concept coverage */
+
+.fc-concepts {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fc-concepts li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--card-sunken);
+  font-size: 14px;
+}
+
