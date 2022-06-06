@@ -1,0 +1,172 @@
+/*
+ * Flashcards: deck grid, deck detail, import/edit dialogs and the study view.
+ * Colours come from the tokens in styles/base.css so the dark theme works; a deck's course colour
+ * arrives as --deck-color. Grade tones: again = bad, hard = warn, good = brand, easy = info.
+ */
+
+.fc-page {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* ---------- Overview (decks page) ---------- */
+
+.fc-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 22px;
+}
+
+.fc-overview .stats {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  margin-bottom: 0;
+}
+
+.fc-overview-forecast {
+  padding: 18px 18px 12px;
+}
+
+.fc-overview-forecast .panel-head {
+  margin-bottom: 8px;
+}
+
+.fc-overview-forecast h2,
+.fc-deck-side h2 {
+  font-size: 15px;
+}
+
+.fc-streak {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fc-streak svg {
+  color: var(--warn);
+  width: 22px;
+  height: 22px;
+}
+
+.primary.is-disabled {
+  background: var(--hover);
+  color: var(--muted);
+}
+
+/* ---------- Filters ---------- */
+
+.fc-filters {
+  gap: 12px;
+}
+
+.fc-filters .search-input {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+.fc-filters .search-input .input {
+  width: 100%;
+}
+
+.fc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1 1 auto;
+}
+
+.fc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.fc-chip:hover {
+  border-color: var(--brand);
+}
+
+.fc-chip.active {
+  background: var(--forest);
+  border-color: var(--forest);
+  color: #fff;
+}
+
+.fc-chip .count {
+  font-size: 11px;
+  background: var(--hover);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0 6px;
+}
+
+.fc-chip.active .count {
+  background: var(--forest-3);
+  color: #fff;
+}
+
+.fc-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* ---------- Deck grid ---------- */
+
+.fc-group {
+  margin-bottom: 26px;
+}
+
+.fc-group > h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  margin-bottom: 12px;
+}
+
+.fc-group > h2 small {
+  font: 500 13px var(--sans);
+}
+
+.fc-deck-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 14px;
+}
+
+.fc-deck {
+  --deck-color: var(--brand);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 18px 18px 14px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition:
+    transform 0.15s,
+    box-shadow 0.15s;
+}
+
+.fc-deck::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: var(--deck-color);
+}
+
