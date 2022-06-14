@@ -125,3 +125,99 @@ export type PlacedBlock = {
   clippedEnd: boolean;
 };
 
+/**
+ * Lay out one day's timed blocks in the visible hours. Blocks that overlap (directly or through a
+ * chain of overlaps) form a cluster; each block takes the first column that is free at its start,
+ * and every block in the cluster shares the cluster's column count so widths line up.
+ */
+export function layoutDay(blocks: readonly TimedBlock[], day: Date, startHour = GRID_START_HOUR, endHour = GRID_END_HOUR): PlacedBlock[] {
+  const gridStart = startOfDay(day).getTime() + startHour * 3_600_000;
+  const gridEnd = startOfDay(day).getTime() + endHour * 3_600_000;
+  const total = gridEnd - gridStart;
+  const minLength = MIN_BLOCK_MINUTES * 60_000;
+
+  const visible = blocks
+    .filter((b) => b.end.getTime() > gridStart && b.start.getTime() < gridEnd)
+    .map((b) => {
+      const start = Math.max(b.start.getTime(), gridStart);
+      const end = Math.min(Math.max(b.end.getTime(), start + minLength), gridEnd);
+      return { key: b.key, start, end, clippedStart: b.start.getTime() < gridStart, clippedEnd: b.end.getTime() > gridEnd };
+    })
+    .sort((a, b) => a.start - b.start || b.end - b.start - (a.end - a.start) || a.key.localeCompare(b.key));
+
+  const placed: PlacedBlock[] = [];
+  let cluster: PlacedBlock[] = [];
+  let columnEnds: number[] = [];
+  let clusterEnd = -Infinity;
+  const closeCluster = () => {
+    cluster.forEach((block) => (block.columns = columnEnds.length));
+    cluster = [];
+    columnEnds = [];
+  };
+
+  for (const block of visible) {
+    if (block.start >= clusterEnd) closeCluster();
+    clusterEnd = Math.max(clusterEnd, block.end);
+    let column = columnEnds.findIndex((end) => end <= block.start);
+    if (column === -1) {
+      column = columnEnds.length;
+      columnEnds.push(block.end);
+    } else {
+      columnEnds[column] = block.end;
+    }
+    const top = ((block.start - gridStart) / total) * 100;
+    const entry: PlacedBlock = {
+      key: block.key,
+      top,
+      height: Math.min(((block.end - block.start) / total) * 100, 100 - top),
+      column,
+      columns: 1,
+      clippedStart: block.clippedStart,
+      clippedEnd: block.clippedEnd,
+    };
+    cluster.push(entry);
+    placed.push(entry);
+  }
+  closeCluster();
+  return placed;
+}
+
+/** Minutes after midnight for a click `offset` pixels down a column `height` pixels tall, snapped. */
+export function minutesAtOffset(offset: number, height: number, snap = 30, startHour = GRID_START_HOUR, endHour = GRID_END_HOUR): number {
+  const span = (endHour - startHour) * 60;
+  const raw = startHour * 60 + (Math.min(Math.max(offset, 0), height) / Math.max(height, 1)) * span;
+  const snapped = Math.floor(raw / snap) * snap;
+  return Math.min(snapped, endHour * 60 - snap);
+}
+
+// ---------- Recurrence ----------
+
+/** The first `count` start dates of a series, mirroring backend/app/services/recurrence.py. */
+export function recurrencePreview(start: Date, recurrence: Recurrence, until: string | null, count = 4): Date[] {
+  if (recurrence === 'none') return [start];
+  const limit = until ? parseDate(until).getTime() + 86_400_000 : Infinity;
+  const step = recurrence === 'weekly' ? 7 : 1;
+  const found: Date[] = [];
+  for (let current = start, guard = 0; found.length < count && current.getTime() < limit && guard < 400; guard += 1) {
+    if (recurrence !== 'weekdays' || weekday(current) < 5) found.push(current);
+    current = addDays(current, step);
+  }
+  return found;
+}
+
+export function describeRecurrence(recurrence: Recurrence, start: string, until: string | null): string {
+  if (recurrence === 'none') return RECURRENCE_LABELS.none;
+  const base = recurrence === 'weekly' ? `Every ${WEEKDAY_NAMES[weekday(parseDate(start))]}` : RECURRENCE_LABELS[recurrence];
+  return until ? `${base}, until ${formatDate(until)}` : `${base}, no end date`;
+}
+
+/** "09:00 – 10:30", "All day", or "18 – 20 Mar" for multi-day all-day items. */
+export function timeLabel(item: Pick<Occurrence, 'starts_at' | 'ends_at'> & { event: { all_day: boolean } }): string {
+  const start = parseDate(item.starts_at);
+  const end = parseDate(item.ends_at);
+  if (item.event.all_day) {
+    const last = addDays(end, -1);
+    return dayKey(last) === dayKey(start) ? 'All day' : `All day · ${spanTitle(start, last)}`;
+  }
+  return `${formatTime(start)} – ${formatTime(end)}`;
+}
