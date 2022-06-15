@@ -126,3 +126,83 @@ describe('grouping occurrences by day', () => {
   });
 });
 
+describe('layoutDay', () => {
+  const day = parseDate('2022-03-16');
+
+  it('gives a lone block the full width at the right offset', () => {
+    const [placed] = layoutDay([block('a', '09:00', '10:30')], day);
+    expect(placed).toMatchObject({ column: 0, columns: 1 });
+    expect(placed.top).toBeCloseTo((120 / 900) * 100);
+    expect(placed.height).toBeCloseTo((90 / 900) * 100);
+  });
+
+  it('places overlapping blocks side by side', () => {
+    const placed = layoutDay([block('workshop', '15:00', '16:30'), block('pair', '15:45', '16:45')], day);
+    expect(placed.map((p) => [p.key, p.column, p.columns])).toEqual([
+      ['workshop', 0, 2],
+      ['pair', 1, 2],
+    ]);
+  });
+
+  it('reuses a freed column and shares the cluster width across a chain of overlaps', () => {
+    const placed = layoutDay(
+      [block('a', '09:00', '10:00'), block('b', '09:30', '11:00'), block('c', '10:00', '10:30'), block('d', '12:00', '13:00')],
+      day,
+    );
+    const byKey = Object.fromEntries(placed.map((p) => [p.key, p]));
+    expect(byKey.c.column).toBe(0); // "a" ended at 10:00, so its column is free again
+    expect([byKey.a.columns, byKey.b.columns, byKey.c.columns]).toEqual([2, 2, 2]);
+    expect(byKey.d).toMatchObject({ column: 0, columns: 1 });
+  });
+
+  it('puts the longer of two same-time blocks first', () => {
+    const placed = layoutDay([block('short', '09:00', '09:30'), block('long', '09:00', '11:00')], day);
+    expect(placed.map((p) => p.key)).toEqual(['long', 'short']);
+  });
+
+  it('clips blocks to the visible hours and drops those outside', () => {
+    const placed = layoutDay([block('early', '06:00', '08:00'), block('late', '21:30', '23:00'), block('night', '22:30', '23:30')], day);
+    expect(placed.map((p) => p.key)).toEqual(['early', 'late']);
+    expect(placed[0]).toMatchObject({ top: 0, clippedStart: true, clippedEnd: false });
+    expect(placed[1].clippedEnd).toBe(true);
+    expect(placed[1].top + placed[1].height).toBeCloseTo(100);
+  });
+
+  it('gives very short blocks a minimum height so they stay clickable', () => {
+    const [placed] = layoutDay([block('blip', '10:00', '10:05')], day);
+    expect(placed.height).toBeCloseTo((20 / 900) * 100);
+  });
+
+  it('snaps clicks to half hours inside the grid', () => {
+    expect(minutesAtOffset(0, 660)).toBe(7 * 60);
+    expect(minutesAtOffset(330, 660)).toBe(14 * 60 + 30);
+    expect(minutesAtOffset(655, 660)).toBe(21 * 60 + 30);
+    expect(minutesAtOffset(-20, 660)).toBe(7 * 60);
+  });
+});
+
+describe('recurrence', () => {
+  it('previews series like the server expands them', () => {
+    expect(keys(recurrencePreview(parseDate('2022-03-18T07:30:00'), 'weekdays', null))).toEqual([
+      '2022-03-18',
+      '2022-03-21',
+      '2022-03-22',
+      '2022-03-23',
+    ]);
+    expect(keys(recurrencePreview(MONDAY, 'weekly', '2022-03-28', 5))).toEqual(['2022-03-14', '2022-03-21', '2022-03-28']);
+    expect(keys(recurrencePreview(MONDAY, 'daily', '2022-03-15'))).toEqual(['2022-03-14', '2022-03-15']);
+    expect(recurrencePreview(MONDAY, 'none', null)).toHaveLength(1);
+  });
+
+  it('describes a series in words', () => {
+    expect(describeRecurrence('weekly', '2022-03-14T18:00:00', '2022-04-25')).toBe('Every Monday, until 25 Apr 2022');
+    expect(describeRecurrence('weekdays', '2022-03-14T07:30:00', null)).toBe('Every weekday (Mon–Fri), no end date');
+    expect(describeRecurrence('none', '2022-03-14T07:30:00', null)).toBe('Does not repeat');
+  });
+
+  it('labels times, all-day and multi-day items', () => {
+    expect(timeLabel(occurrence('1:0', '2022-03-16T15:00:00', '2022-03-16T16:30:00'))).toBe('15:00 – 16:30');
+    expect(timeLabel(occurrence('2:0', '2022-03-18T00:00:00', '2022-03-19T00:00:00', { all_day: true }))).toBe('All day');
+    expect(timeLabel(occurrence('3:0', '2022-03-18T00:00:00', '2022-03-21T00:00:00', { all_day: true }))).toBe('All day · 18 – 20 Mar 2022');
+  });
+});
