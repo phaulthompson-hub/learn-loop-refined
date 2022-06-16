@@ -171,3 +171,179 @@
   text-align: left;
 }
 
+.event-chip:hover {
+  filter: brightness(0.97);
+  box-shadow: var(--shadow-sm);
+}
+
+.event-chip.all-day {
+  background: var(--kind);
+  color: #fff;
+  border-left-color: transparent;
+  font-weight: 600;
+}
+
+.event-chip time {
+  color: var(--kind-ink);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+.event-chip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.event-chip .chip-icon {
+  width: 11px;
+  height: 11px;
+  opacity: 0.7;
+}
+
+/* ---------- Month view ---------- */
+
+.month-head,
+.month-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.month-head span {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  padding: 0 8px 8px;
+}
+
+.month-grid {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: visible;
+  background: var(--line);
+  display: grid;
+  gap: 1px;
+}
+
+.month-row {
+  gap: 1px;
+}
+
+.month-cell {
+  position: relative;
+  background: var(--card);
+  min-height: 112px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.month-cell:hover {
+  background: var(--card-sunken);
+}
+
+.month-cell.outside {
+  background: var(--card-sunken);
+}
+
+.month-cell.outside .day-number span {
+  color: var(--faint);
+}
+
+.day-number {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  background: transparent;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.day-number .add-hint {
+  width: 12px;
+  height: 12px;
+  opacity: 0;
+  color: var(--brand);
+}
+
+.month-cell:hover .add-hint,
+.day-number:focus-visible .add-hint {
+  opacity: 1;
+}
+
+.month-cell.today .day-number {
+  background: var(--brand);
+  color: #fff;
+}
+
+.month-cell.today .day-number .add-hint {
+  color: #fff;
+}
+
+.month-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.more-chip {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  padding: 1px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.more-chip:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.mobile-dots {
+  display: none;
+}
+
+.day-popover {
+  position: absolute;
+  z-index: 30;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max(100%, 240px);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 8px;
+  cursor: default;
+  animation: pop-in 0.15s ease;
+}
+
+.day-popover header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  padding: 0 0 6px 4px;
+}
+
