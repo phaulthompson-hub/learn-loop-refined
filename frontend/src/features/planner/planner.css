@@ -1,0 +1,173 @@
+/* Planner: month grid, week time grid, agenda, event modal and drawer. Colours come from base.css tokens. */
+
+/* ---------- Event kinds ---------- */
+
+.kind-study {
+  --kind: var(--brand);
+  --kind-soft: var(--brand-soft);
+  --kind-ink: var(--brand-ink);
+}
+
+.kind-review {
+  --kind: var(--info);
+  --kind-soft: var(--info-soft);
+  --kind-ink: var(--info);
+}
+
+.kind-exam {
+  --kind: var(--bad);
+  --kind-soft: var(--bad-soft);
+  --kind-ink: var(--bad);
+}
+
+.kind-deadline {
+  --kind: var(--warn);
+  --kind-soft: var(--warn-soft);
+  --kind-ink: var(--warn);
+}
+
+.kind-live {
+  --kind: var(--violet);
+  --kind-soft: var(--violet-soft);
+  --kind-ink: var(--violet);
+}
+
+.kind-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--kind);
+  flex: none;
+  display: inline-block;
+}
+
+.kind-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--kind-ink);
+  background: var(--kind-soft);
+  border-radius: 999px;
+  padding: 2px 10px 2px 8px;
+}
+
+.course-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  min-width: 0;
+}
+
+/* ---------- Toolbar and filters ---------- */
+
+.planner-panel {
+  padding: 18px;
+}
+
+.planner-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.planner-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.planner-nav h2 {
+  font-size: 20px;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+.planner-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.planner-filters select.input {
+  width: auto;
+  min-width: 160px;
+  padding: 7px 28px 7px 10px;
+}
+
+.kind-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kind-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.kind-toggle:hover {
+  border-color: var(--kind);
+}
+
+.kind-toggle.active {
+  background: var(--kind-soft);
+  border-color: var(--kind);
+  color: var(--kind-ink);
+}
+
+.planner-count {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.planner-body.is-refreshing {
+  opacity: 0.65;
+  transition: opacity 0.2s;
+}
+
+.planner-shortcuts {
+  font-size: 12px;
+  margin: 14px 0 0;
+}
+
+/* ---------- Chips ---------- */
+
+.event-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-left: 3px solid var(--kind);
+  background: var(--kind-soft);
+  color: var(--ink);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  cursor: pointer;
+  text-align: left;
+}
+
