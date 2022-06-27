@@ -128,3 +128,71 @@ export function validateGoalForm(form: GoalFormState, today: Date, previousDueDa
   return errors;
 }
 
+export function goalFormToPayload(form: GoalFormState): GoalInput {
+  return {
+    title: form.title.trim(),
+    kind: form.kind,
+    period: form.period,
+    target: Number(form.target),
+    course_id: form.courseId ? Number(form.courseId) : null,
+    due_date: form.period === 'once' && form.dueDate ? form.dueDate : null,
+  };
+}
+
+/** A goal quantity for display: "62%" for mastery, "1,200" otherwise. */
+export function goalAmount(goal: Pick<Goal, 'kind'>, value: number): string {
+  return goal.kind === 'course_mastery' ? `${Math.round(value)}%` : formatNumber(Math.round(value));
+}
+
+/** One line about what is left, e.g. "3 more answers today" or "18% to go in 22 days". */
+export function paceHint(goal: Pick<Goal, 'kind' | 'period' | 'progress'>): string {
+  const { progress } = goal;
+  if (progress.status === 'done') return goal.period === 'once' ? 'Goal reached. Nice work!' : 'Done for this period.';
+  const left = goalAmount(goal, progress.remaining);
+  if (progress.status === 'overdue') return `The due date passed with ${left} to go.`;
+  const unit = goal.kind === 'course_mastery' ? 'to go' : `more ${progress.unit}`;
+  const when = progress.days_left === null ? '' : progress.days_left === 0 ? ' today' : ` in ${plural(progress.days_left + 1, 'day')}`;
+  return `${left} ${unit}${when}`;
+}
+
+// ---------- Study logs ----------
+
+export type StudyLogFormState = { minutes: string; activity: StudyActivity; courseId: string; date: string; time: string; note: string };
+export type StudyLogErrors = Partial<Record<'minutes' | 'date' | 'time' | 'note', string>>;
+
+export function emptyStudyLog(now: Date): StudyLogFormState {
+  return { minutes: '30', activity: 'manual', courseId: '', date: dayKey(now), time: toApiDateTime(now).slice(11, 16), note: '' };
+}
+
+export function studyLogMoment(form: Pick<StudyLogFormState, 'date' | 'time'>): Date {
+  return parseDate(`${form.date}T${form.time || '00:00'}:00`);
+}
+
+/** `loggedThatDay`: minutes already logged on the chosen day (the server caps a day at 24 hours). */
+export function validateStudyLog(form: StudyLogFormState, now: Date, loggedThatDay = 0): StudyLogErrors {
+  const errors: StudyLogErrors = {};
+  const minutes = Number(form.minutes);
+  if (form.minutes.trim() === '' || !Number.isInteger(minutes)) errors.minutes = 'Enter whole minutes.';
+  else if (minutes < 1 || minutes > MAX_LOG_MINUTES) errors.minutes = `Log between 1 and ${MAX_LOG_MINUTES} minutes at a time.`;
+  else if (loggedThatDay + minutes > MINUTES_PER_DAY) errors.minutes = `That day already has ${loggedThatDay} minutes logged.`;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(form.date)) errors.date = 'Choose a date.';
+  else if (!/^\d{2}:\d{2}$/.test(form.time)) errors.time = 'Choose a time.';
+  else {
+    const moment = studyLogMoment(form);
+    if (moment.getTime() > now.getTime()) errors.time = 'Study time cannot be logged in the future.';
+    else if (daysBetween(moment, now) > LOG_HISTORY_DAYS) errors.date = `You can log time for the last ${LOG_HISTORY_DAYS} days.`;
+  }
+  if (form.note.trim().length > NOTE_MAX) errors.note = `Keep the note under ${NOTE_MAX} characters.`;
+  return errors;
+}
+
+export function studyLogToPayload(form: StudyLogFormState): StudyLogInput {
+  return {
+    minutes: Number(form.minutes),
+    activity: form.activity,
+    note: form.note.trim(),
+    course_id: form.courseId ? Number(form.courseId) : null,
+    logged_at: toApiDateTime(studyLogMoment(form)),
+  };
+}
