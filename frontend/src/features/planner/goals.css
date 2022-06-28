@@ -170,3 +170,177 @@
   padding-right: 6px;
 }
 
+.heatmap-cell {
+  width: var(--cell);
+  height: var(--cell);
+  border-radius: 3px;
+  background: var(--hover);
+  display: inline-block;
+}
+
+.heatmap-cell.level-1 {
+  background: color-mix(in srgb, var(--brand) 28%, var(--card));
+}
+
+.heatmap-cell.level-2 {
+  background: color-mix(in srgb, var(--brand) 50%, var(--card));
+}
+
+.heatmap-cell.level-3 {
+  background: color-mix(in srgb, var(--brand) 75%, var(--card));
+}
+
+.heatmap-cell.level-4 {
+  background: var(--brand);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.heatmap-cell.future {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: auto;
+  padding-top: 12px;
+  justify-content: flex-end;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.heatmap-legend span:first-child {
+  margin-right: 4px;
+}
+
+.heatmap-legend span:last-child {
+  margin-left: 4px;
+}
+
+/* ---------- Goals ---------- */
+
+.goals-section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.goals-section-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.goals-section-head h2 svg {
+  color: var(--brand);
+}
+
+.goals-section-head .segmented {
+  margin-left: auto;
+}
+
+.goal-counts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.goals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.goal-card {
+  --tone: var(--info);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--tone);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.goal-card.status-at_risk {
+  --tone: var(--warn);
+}
+
+.goal-card.status-done {
+  --tone: var(--ok);
+}
+
+.goal-card.status-overdue {
+  --tone: var(--bad);
+}
+
+.goal-card.archived {
+  --tone: var(--line-strong);
+  opacity: 0.8;
+}
+
+.goal-card header,
+.goal-card footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.goal-card footer {
+  justify-content: flex-start;
+  font-size: 13px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.goal-body {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+}
+
+.goal-text h3 {
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.goal-amount {
+  margin: 4px 0 2px;
+  color: var(--ink-soft);
+}
+
+.goal-amount b {
+  font: 800 20px var(--display);
+  color: var(--ink);
+}
+
+.goal-card-meta {
+  margin: 0;
+  font-size: 13px;
+}
+
+.goal-hint {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.goal-expected {
+  margin-left: auto;
+}
+
+.goal-ring {
+  width: 84px;
+  height: 84px;
+}
+
