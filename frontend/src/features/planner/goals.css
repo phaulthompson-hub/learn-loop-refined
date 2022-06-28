@@ -1,0 +1,172 @@
+/* Goals & streaks: streak hero, activity heatmap, goal cards with progress rings, study-time panel. */
+
+.goals-page {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.goals-page .page-header {
+  margin-bottom: 0;
+}
+
+.goals-top {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.4fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+/* ---------- Streak hero ---------- */
+
+.streak-hero {
+  position: relative;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 18px;
+  padding: 22px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(145deg, var(--forest), var(--forest-3));
+  color: #eef6f0;
+  box-shadow: var(--shadow);
+}
+
+.streak-hero::after {
+  content: '';
+  position: absolute;
+  right: -60px;
+  top: -60px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 35%, transparent), transparent 70%);
+  pointer-events: none;
+}
+
+.goals-streak-flame {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.goals-streak-flame svg {
+  width: 34px;
+  height: 34px;
+}
+
+.streak-hero.is-active .goals-streak-flame svg {
+  animation: flicker 2.4s ease-in-out infinite;
+  fill: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.streak-hero.is-pending .goals-streak-flame {
+  color: #c8d6cd;
+  background: #ffffff14;
+}
+
+@keyframes flicker {
+  50% {
+    transform: scale(1.08) rotate(-3deg);
+  }
+}
+
+.streak-main .eyebrow {
+  color: #a9c2b3;
+}
+
+.goals-streak-count {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 18px;
+}
+
+.goals-streak-count b {
+  font: 800 52px/1 var(--display);
+  letter-spacing: -1.5px;
+  color: #fff;
+}
+
+.streak-today {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: #d6e4db;
+  font-size: 14px;
+}
+
+.streak-today svg {
+  color: var(--accent);
+}
+
+.streak-facts {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid #ffffff1f;
+}
+
+.streak-facts dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: #a9c2b3;
+}
+
+.streak-facts dd {
+  margin: 3px 0 0;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* ---------- Heatmap ---------- */
+
+.heatmap-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.heatmap-panel .panel-head {
+  margin-bottom: 12px;
+}
+
+.heatmap-scroll {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.heatmap {
+  --cell: 14px;
+  display: grid;
+  gap: 3px;
+  width: max-content;
+}
+
+.heatmap-month,
+.heatmap-weekday {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  line-height: var(--cell);
+}
+
+.heatmap-month {
+  overflow: visible;
+  width: var(--cell);
+}
+
+.heatmap-weekday {
+  padding-right: 6px;
+}
+
