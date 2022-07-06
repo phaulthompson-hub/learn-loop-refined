@@ -240,3 +240,164 @@ export function laneMatches(task: Task, key: string, groupBy: GroupBy): boolean 
 
 // ---------- Moves ----------
 
+/** Same midpoint rule as backend `position_between`. */
+export function positionBetween(upper: number | null, lower: number | null): number {
+  if (upper === null && lower === null) return POSITION_STEP;
+  if (upper === null) return lower! > POSITION_STEP ? lower! - POSITION_STEP : lower! / 2;
+  if (lower === null) return upper + POSITION_STEP;
+  return (upper + lower) / 2;
+}
+
+/** Convert a drop-indicator index (counted over the list *as displayed*, dragged card included) to a final index. */
+export function dropToFinalIndex(visibleIds: readonly number[], taskId: number, dropIndex: number): number {
+  const current = visibleIds.indexOf(taskId);
+  return current !== -1 && current < dropIndex ? dropIndex - 1 : dropIndex;
+}
+
+export type MoveTarget = { status: TaskStatus; after_id: number | null; before_id: number | null };
+export type PlannedMove = { tasks: Task[]; target: MoveTarget };
+
+/**
+ * Plan an optimistic move of `taskId` to `finalIndex` within `visible` (the cards shown in the target
+ * cell, which may be filtered or one swimlane of the column). Neighbours come from what the user saw;
+ * the provisional position is computed against the full column, exactly as the server will.
+ * Returns null when nothing would change.
+ */
+export function planMove(tasks: readonly Task[], taskId: number, status: TaskStatus, visible: readonly Task[], finalIndex: number): PlannedMove | null {
+  const moving = tasks.find((task) => task.id === taskId);
+  if (!moving) return null;
+  const others = visible.filter((task) => task.id !== taskId);
+  const index = Math.max(0, Math.min(finalIndex, others.length));
+  const after = index > 0 ? others[index - 1] : null;
+  const before = index < others.length ? others[index] : null;
+
+  const column = columnTasks(tasks, status).filter((task) => task.id !== taskId);
+  const slot = after ? column.indexOf(after) + 1 : before ? column.indexOf(before) : column.length;
+  const upper = slot > 0 ? column[slot - 1].position : null;
+  const lower = slot < column.length ? column[slot].position : null;
+
+  const original = columnTasks(tasks, moving.status);
+  const originalIndex = original.findIndex((task) => task.id === taskId);
+  const unchanged = moving.status === status && original[originalIndex - 1]?.id === column[slot - 1]?.id && original[originalIndex + 1]?.id === column[slot]?.id;
+  if (unchanged) return null;
+
+  const moved: Task = { ...moving, status, position: positionBetween(upper, lower) };
+  return {
+    tasks: tasks.map((task) => (task.id === taskId ? moved : task)),
+    target: { status, after_id: after?.id ?? null, before_id: before?.id ?? null },
+  };
+}
+
+/** Merge the server's answer to a move: the canonical task plus (possibly rebalanced) column positions. */
+export function applyMoveResult(tasks: readonly Task[], result: MoveResult): Task[] {
+  const positions = new Map(result.column.map((entry) => [entry.id, entry.position]));
+  return tasks.map((task) => {
+    if (task.id === result.task.id) return result.task;
+    const position = positions.get(task.id);
+    return position === undefined ? task : { ...task, position };
+  });
+}
+
+export type KeyboardMove = { status: TaskStatus; index: number };
+
+/**
+ * Alt+Arrow on a focused card: Up/Down reorder inside its visible column, Left/Right move it to the
+ * neighbouring column at the same height (clamped). Returns null at the edges.
+ */
+export function keyboardMove(key: string, task: Task, visibleByStatus: Record<TaskStatus, readonly Task[]>): KeyboardMove | null {
+  const column = visibleByStatus[task.status];
+  const index = column.findIndex((t) => t.id === task.id);
+  if (key === 'ArrowUp') return index > 0 ? { status: task.status, index: index - 1 } : null;
+  if (key === 'ArrowDown') return index !== -1 && index < column.length - 1 ? { status: task.status, index: index + 1 } : null;
+  const offset = key === 'ArrowLeft' ? -1 : key === 'ArrowRight' ? 1 : 0;
+  const status = STATUSES[STATUSES.indexOf(task.status) + offset];
+  if (!offset || !status) return null;
+  return { status, index: Math.min(Math.max(index, 0), visibleByStatus[status].length) };
+}
+
+// ---------- @mentions ----------
+
+export type MentionQuery = { start: number; query: string };
+
+/** The "@partial name" being typed just before the caret, if any ("Thanks @pri|" → {start: 7, query: 'pri'}). */
+export function mentionQuery(text: string, caret: number): MentionQuery | null {
+  const match = /(^|\s)@([^\s@]*(?: [^\s@]*)?)$/.exec(text.slice(0, caret));
+  if (!match) return null;
+  return { start: match.index + match[1].length, query: match[2] };
+}
+
+export function mentionSuggestions<T extends Person>(people: readonly T[], query: string, limit = 6): T[] {
+  const needle = query.trim().toLowerCase();
+  const matching = people.filter((person) => {
+    const name = person.name.toLowerCase();
+    return !needle || name.startsWith(needle) || name.split(/\s+/).some((word) => word.startsWith(needle));
+  });
+  return matching.slice(0, limit);
+}
+
+/** Replace the "@partial" at `start..caret` with "@Full Name " and return the new text and caret. */
+export function insertMention(text: string, start: number, caret: number, name: string): { text: string; caret: number } {
+  const inserted = `@${name} `;
+  return { text: text.slice(0, start) + inserted + text.slice(caret), caret: start + inserted.length };
+}
+
+export type MentionSegment = { text: string; person?: Person };
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Split a comment into plain text and mention segments, using the same rules as the server:
+ * "@Full Name" always, "@First" only when that first name is unique among `people`.
+ */
+export function mentionSegments(body: string, people: readonly Person[]): MentionSegment[] {
+  const firstCounts = new Map<string, number>();
+  people.forEach((p) => {
+    const first = p.name.split(/\s+/)[0].toLowerCase();
+    firstCounts.set(first, (firstCounts.get(first) ?? 0) + 1);
+  });
+  const tokens: { token: string; person: Person }[] = [];
+  people.forEach((person) => {
+    tokens.push({ token: person.name, person });
+    const first = person.name.split(/\s+/)[0];
+    if (first !== person.name && firstCounts.get(first.toLowerCase()) === 1) tokens.push({ token: first, person });
+  });
+  if (!tokens.length) return [{ text: body }];
+  // Longest tokens first so "@Maya Chen" wins over "@Maya".
+  tokens.sort((a, b) => b.token.length - a.token.length);
+  const pattern = new RegExp(`(?<![\\w@])@(${tokens.map((t) => escapeRegExp(t.token)).join('|')})(?!\\w)`, 'gi');
+  const segments: MentionSegment[] = [];
+  let last = 0;
+  for (const match of body.matchAll(pattern)) {
+    const person = tokens.find((t) => t.token.toLowerCase() === match[1].toLowerCase())!.person;
+    const index = match.index ?? 0;
+    if (index > last) segments.push({ text: body.slice(last, index) });
+    segments.push({ text: match[0], person });
+    last = index + match[0].length;
+  }
+  if (last < body.length) segments.push({ text: body.slice(last) });
+  return segments;
+}
+
+// ---------- Small display helpers ----------
+
+/** Board-card view of a task the drawer has edited locally (checklist ticks and comments update the counters). */
+export function summarize(detail: TaskDetail): Task {
+  return {
+    ...detail,
+    checklist_done: detail.checklist.filter((item) => item.done).length,
+    checklist_total: detail.checklist.length,
+    comment_count: detail.comments.length,
+  };
+}
+
+export function flattenBoard(board: Board): Task[] {
+  return board.columns.flatMap((column) => column.tasks);
+}
+
+export function progressPercent(done: number, total: number): number {
+  return total ? Math.round((done / total) * 100) : 0;
+}
+
+export function nextStatus(status: TaskStatus): TaskStatus | null {
+  return STATUSES[STATUSES.indexOf(status) + 1] ?? null;
+}
