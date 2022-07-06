@@ -120,3 +120,123 @@ export function dueLabel(due: string, status: TaskStatus, now: Date): string {
   return Math.abs(diff) < 7 ? formatWeekday(due) : formatShortDate(due);
 }
 
+export function matchesDue(task: Pick<Task, 'due_date' | 'status'>, filter: DueFilter, now: Date): boolean {
+  if (filter === 'none') return task.due_date === null;
+  if (!task.due_date) return false;
+  const state = dueStatus(task.due_date, task.status, now);
+  if (filter === 'overdue') return state === 'overdue';
+  if (filter === 'today') return dayKey(task.due_date) === dayKey(now);
+  const monday = startOfWeek(now);
+  const due = parseDate(task.due_date);
+  return task.status !== 'done' && due >= monday && due < addDays(monday, 7);
+}
+
+// ---------- Filtering, ordering, lanes ----------
+
+export function filterTasks(tasks: readonly Task[], filters: BoardFilters, now: Date): Task[] {
+  return tasks.filter((task) => {
+    if (filters.assignees.length) {
+      const key: AssigneeFilter = task.assignee ? task.assignee.id : 'none';
+      if (!filters.assignees.includes(key)) return false;
+    }
+    if (filters.label && !task.labels.some((label) => label.id === filters.label)) return false;
+    if (filters.priority && task.priority !== filters.priority) return false;
+    if (filters.course && task.course?.id !== filters.course) return false;
+    if (filters.due && !matchesDue(task, filters.due, now)) return false;
+    return matchesQuery(filters.q, task.key, task.title, task.description, task.labels.map((l) => l.name).join(' '));
+  });
+}
+
+export const byPosition = (a: Task, b: Task) => a.position - b.position || a.id - b.id;
+
+export function columnTasks(tasks: readonly Task[], status: TaskStatus): Task[] {
+  return tasks.filter((task) => task.status === status).sort(byPosition);
+}
+
+export function columnStats(tasks: readonly Task[]): { count: number; points: number } {
+  return { count: tasks.length, points: tasks.reduce((sum, task) => sum + (task.estimate ?? 0), 0) };
+}
+
+export type WipState = 'none' | 'ok' | 'full' | 'over';
+
+export function wipState(count: number, limit: number | null): WipState {
+  if (limit === null) return 'none';
+  if (count > limit) return 'over';
+  return count === limit ? 'full' : 'ok';
+}
+
+export type Swimlane = { key: string; title: string; person?: Person; priority?: TaskPriority; tasks: Task[] };
+
+export function laneKey(task: Task, groupBy: GroupBy): string {
+  if (groupBy === 'assignee') return task.assignee ? `assignee:${task.assignee.id}` : 'assignee:none';
+  if (groupBy === 'priority') return `priority:${task.priority}`;
+  return 'all';
+}
+
+/**
+ * Split tasks into horizontal lanes. Assignee lanes follow the member list (people with no visible
+ * tasks are skipped) with "Unassigned" last; priority lanes always show urgent → low.
+ */
+export function buildSwimlanes(tasks: readonly Task[], groupBy: GroupBy, members: readonly BoardMember[]): Swimlane[] {
+  if (groupBy === 'none') return [{ key: 'all', title: 'All tasks', tasks: [...tasks] }];
+  if (groupBy === 'priority') {
+    return PRIORITIES.map((priority) => ({
+      key: `priority:${priority}`,
+      title: PRIORITY_LABELS[priority],
+      priority,
+      tasks: tasks.filter((task) => task.priority === priority),
+    }));
+  }
+  const people = new Map<number, Person>(members.map((m) => [m.id, m]));
+  tasks.forEach((task) => task.assignee && !people.has(task.assignee.id) && people.set(task.assignee.id, task.assignee));
+  const lanes: Swimlane[] = [...people.values()]
+    .map((person) => ({
+      key: `assignee:${person.id}`,
+      title: person.name,
+      person,
+      tasks: tasks.filter((task) => task.assignee?.id === person.id),
+    }))
+    .filter((lane) => lane.tasks.length > 0);
+  lanes.push({ key: 'assignee:none', title: 'Unassigned', tasks: tasks.filter((task) => !task.assignee) });
+  return lanes;
+}
+
+/** The field change implied by dropping a card into another lane ("assignee:3" → assign to member 3). */
+export function laneChange(key: string): TaskPatch {
+  const [kind, value] = key.split(':');
+  if (kind === 'assignee') return { assignee_id: value === 'none' ? null : Number(value) };
+  if (kind === 'priority') return { priority: value as TaskPriority };
+  return {};
+}
+
+export type PatchLookups = { members: readonly BoardMember[]; courses: readonly CourseBrief[]; labels: readonly Label[] };
+
+/**
+ * Apply a PATCH body to a task locally (for optimistic UI), resolving ids to the embedded objects
+ * the API would return. Server-owned fields (completed_at, updated_at) are left for the response.
+ */
+export function applyPatch<T extends Task>(task: T, patch: TaskPatch, lookups: PatchLookups): T {
+  const next: T = { ...task };
+  if (patch.title !== undefined) next.title = patch.title.trim();
+  if (patch.description !== undefined) next.description = patch.description;
+  if (patch.status !== undefined) next.status = patch.status;
+  if (patch.priority !== undefined) next.priority = patch.priority;
+  if (patch.due_date !== undefined) next.due_date = patch.due_date;
+  if (patch.estimate !== undefined) next.estimate = patch.estimate;
+  if (patch.assignee_id !== undefined) {
+    const member = lookups.members.find((m) => m.id === patch.assignee_id);
+    next.assignee = member ? { id: member.id, name: member.name, email: member.email, avatar_color: member.avatar_color } : null;
+  }
+  if (patch.course_id !== undefined) next.course = lookups.courses.find((c) => c.id === patch.course_id) ?? null;
+  if (patch.label_ids !== undefined) {
+    next.labels = lookups.labels.filter((l) => patch.label_ids!.includes(l.id)).sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return next;
+}
+
+export function laneMatches(task: Task, key: string, groupBy: GroupBy): boolean {
+  return groupBy === 'none' || laneKey(task, groupBy) === key;
+}
+
+// ---------- Moves ----------
+
