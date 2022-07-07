@@ -314,3 +314,55 @@ describe('moves', () => {
   });
 });
 
+describe('mentions', () => {
+  it('finds the partial mention before the caret', () => {
+    expect(mentionQuery('Thanks @pri', 11)).toEqual({ start: 7, query: 'pri' });
+    expect(mentionQuery('@', 1)).toEqual({ start: 0, query: '' });
+    expect(mentionQuery('ping @Maya Ch', 13)).toEqual({ start: 5, query: 'Maya Ch' });
+    expect(mentionQuery('mail alex@example', 17)).toBeNull();
+    expect(mentionQuery('@Maya Chen is great', 19)).toBeNull();
+  });
+
+  it('suggests members by first or last name', () => {
+    expect(mentionSuggestions(MEMBERS, 'ch').map((p) => p.name)).toEqual(['Maya Chen']);
+    expect(mentionSuggestions(MEMBERS, 'P').map((p) => p.name)).toEqual(['Priya Nair']);
+    expect(mentionSuggestions(MEMBERS, '')).toHaveLength(3);
+    expect(mentionSuggestions(MEMBERS, 'zz')).toEqual([]);
+  });
+
+  it('inserts the full name and moves the caret after it', () => {
+    expect(insertMention('Hi @pr, see', 3, 6, 'Priya Nair')).toEqual({ text: 'Hi @Priya Nair , see', caret: 15 });
+  });
+
+  it('splits comments into text and mention segments', () => {
+    const segments = mentionSegments('@Maya Chen and @priya: see alex@x.dev', MEMBERS);
+    expect(segments.map((s) => [s.text, s.person?.id ?? null])).toEqual([
+      ['@Maya Chen', 2],
+      [' and ', null],
+      ['@priya', 3],
+      [': see alex@x.dev', null],
+    ]);
+  });
+
+  it('needs the full name when first names are shared', () => {
+    const people = [person(1, 'Sam Okafor'), person(2, 'Sam Lee')];
+    expect(mentionSegments('@Sam hi', people)).toEqual([{ text: '@Sam hi' }]);
+    expect(mentionSegments('@Sam Lee hi', people)[0].person?.id).toBe(2);
+  });
+});
+
+describe('summarize', () => {
+  it('recomputes counters from the drawer detail', () => {
+    const detail: TaskDetail = {
+      ...task({ id: 1, checklist_done: 0, checklist_total: 0, comment_count: 0 }),
+      checklist: [
+        { id: 1, text: 'a', done: true, position: 0 },
+        { id: 2, text: 'b', done: false, position: 1 },
+      ],
+      comments: [],
+      can_delete: true,
+    };
+    const summary = summarize(detail);
+    expect([summary.checklist_done, summary.checklist_total, summary.comment_count]).toEqual([1, 2, 0]);
+  });
+});
