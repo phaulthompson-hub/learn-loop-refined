@@ -136,3 +136,181 @@ describe('due dates', () => {
   });
 });
 
+describe('filterTasks', () => {
+  const tasks = [
+    task({ id: 1, title: 'Gradient descent', assignee: ALEX, labels: [READING], priority: 'high' }),
+    task({ id: 2, title: 'SQL joins', description: 'left and anti joins', course: { id: 4, title: 'SQL', color: '#000' } }),
+    task({ id: 3, title: 'Mock exam', assignee: PRIYA, labels: [EXAM], due_date: '2022-03-10' }),
+  ];
+
+  it('returns everything without filters', () => {
+    expect(ids(filterTasks(tasks, EMPTY_FILTERS, NOW))).toEqual([1, 2, 3]);
+  });
+
+  it('searches title, description, key and label names', () => {
+    expect(ids(filterTasks(tasks, { ...EMPTY_FILTERS, q: 'anti' }, NOW))).toEqual([2]);
+    expect(ids(filterTasks(tasks, { ...EMPTY_FILTERS, q: 'nda-3' }, NOW))).toEqual([3]);
+    expect(ids(filterTasks(tasks, { ...EMPTY_FILTERS, q: 'reading gradient' }, NOW))).toEqual([1]);
+  });
+
+  it('combines assignee (including unassigned), label, priority, course and due', () => {
+    expect(ids(filterTasks(tasks, { ...EMPTY_FILTERS, assignees: [1, 'none'] }, NOW))).toEqual([1, 2]);
+    expect(ids(filterTasks(tasks, { ...EMPTY_FILTERS, label: 11 }, NOW))).toEqual([3]);
+    expect(ids(filterTasks(tasks, { ...EMPTY_FILTERS, priority: 'high' }, NOW))).toEqual([1]);
+    expect(ids(filterTasks(tasks, { ...EMPTY_FILTERS, course: 4 }, NOW))).toEqual([2]);
+    expect(ids(filterTasks(tasks, { ...EMPTY_FILTERS, due: 'overdue', assignees: [3] }, NOW))).toEqual([3]);
+    expect(filterTasks(tasks, { ...EMPTY_FILTERS, due: 'overdue', assignees: [1] }, NOW)).toEqual([]);
+  });
+});
+
+describe('columns and swimlanes', () => {
+  it('orders a column by position', () => {
+    const tasks = [task({ id: 1, position: 3000 }), task({ id: 2, position: 1000 }), task({ id: 3, status: 'done', position: 1 })];
+    expect(ids(columnTasks(tasks, 'todo'))).toEqual([2, 1]);
+  });
+
+  it('sums counts and points, ignoring missing estimates', () => {
+    expect(columnStats([task({ estimate: 3 }), task({ estimate: null }), task({ estimate: 5 })])).toEqual({ count: 3, points: 8 });
+  });
+
+  it('describes work-in-progress limits', () => {
+    expect(wipState(3, null)).toBe('none');
+    expect(wipState(3, 6)).toBe('ok');
+    expect(wipState(6, 6)).toBe('full');
+    expect(wipState(7, 6)).toBe('over');
+  });
+
+  it('groups by assignee in member order, skipping empty lanes, unassigned last', () => {
+    const tasks = [task({ id: 1, assignee: PRIYA }), task({ id: 2 }), task({ id: 3, assignee: ALEX })];
+    const lanes = buildSwimlanes(tasks, 'assignee', MEMBERS);
+    expect(lanes.map((l) => l.title)).toEqual(['Alex Rivera', 'Priya Nair', 'Unassigned']);
+    expect(lanes.map((l) => ids(l.tasks))).toEqual([[3], [1], [2]]);
+  });
+
+  it('keeps lanes for former members who still have tasks', () => {
+    const former = person(9, 'Jonas Weber');
+    const lanes = buildSwimlanes([task({ id: 1, assignee: former })], 'assignee', MEMBERS);
+    expect(lanes.map((l) => l.key)).toEqual(['assignee:9', 'assignee:none']);
+  });
+
+  it('always shows four priority lanes, most urgent first', () => {
+    const lanes = buildSwimlanes([task({ priority: 'low' })], 'priority', MEMBERS);
+    expect(lanes.map((l) => l.key)).toEqual(['priority:urgent', 'priority:high', 'priority:medium', 'priority:low']);
+  });
+
+  it('turns a lane key into the field change for a cross-lane drop', () => {
+    expect(laneChange('assignee:3')).toEqual({ assignee_id: 3 });
+    expect(laneChange('assignee:none')).toEqual({ assignee_id: null });
+    expect(laneChange('priority:urgent')).toEqual({ priority: 'urgent' });
+    expect(laneChange('all')).toEqual({});
+  });
+});
+
+describe('applyPatch', () => {
+  const lookups = { members: MEMBERS, courses: [{ id: 4, title: 'SQL', color: '#111' }], labels: [READING, EXAM] };
+
+  it('resolves ids to embedded objects', () => {
+    const next = applyPatch(task({ assignee: ALEX }), { assignee_id: 3, course_id: 4, label_ids: [11, 10] }, lookups);
+    expect(next.assignee?.name).toBe('Priya Nair');
+    expect(next.course?.title).toBe('SQL');
+    expect(next.labels.map((l) => l.name)).toEqual(['Exam prep', 'Reading']);
+  });
+
+  it('clears nullable fields and leaves untouched ones alone', () => {
+    const original = task({ assignee: ALEX, due_date: '2022-03-18', priority: 'high' });
+    const next = applyPatch(original, { assignee_id: null, due_date: null }, lookups);
+    expect(next.assignee).toBeNull();
+    expect(next.due_date).toBeNull();
+    expect(next.priority).toBe('high');
+    expect(original.assignee).toEqual(ALEX); // not mutated
+  });
+});
+
+describe('moves', () => {
+  it('uses the same midpoint rule as the server', () => {
+    expect(positionBetween(null, null)).toBe(1024);
+    expect(positionBetween(1024, 2048)).toBe(1536);
+    expect(positionBetween(2048, null)).toBe(3072);
+    expect(positionBetween(null, 4096)).toBe(3072);
+    expect(positionBetween(null, 100)).toBe(50);
+  });
+
+  it('converts a drop index over the displayed list into a final index', () => {
+    expect(dropToFinalIndex([1, 2, 3], 1, 3)).toBe(2); // dragging the first card below the last
+    expect(dropToFinalIndex([1, 2, 3], 3, 0)).toBe(0);
+    expect(dropToFinalIndex([1, 2, 3], 9, 2)).toBe(2); // card from another column
+  });
+
+  it('plans a move into another column between two neighbours', () => {
+    const tasks = [task({ id: 1 }), task({ id: 2, status: 'review', position: 1000 }), task({ id: 3, status: 'review', position: 2000 })];
+    const plan = planMove(tasks, 1, 'review', columnTasks(tasks, 'review'), 1)!;
+    expect(plan.target).toEqual({ status: 'review', after_id: 2, before_id: 3 });
+    const moved = plan.tasks.find((t) => t.id === 1)!;
+    expect(moved.status).toBe('review');
+    expect(moved.position).toBe(1500);
+    expect(ids(columnTasks(plan.tasks, 'review'))).toEqual([2, 1, 3]);
+  });
+
+  it('plans a move to the top and bottom of the same column', () => {
+    const tasks = [task({ id: 1, position: 1024 }), task({ id: 2, position: 2048 }), task({ id: 3, position: 3072 })];
+    const top = planMove(tasks, 3, 'todo', columnTasks(tasks, 'todo'), 0)!;
+    expect(top.target).toEqual({ status: 'todo', after_id: null, before_id: 1 });
+    expect(ids(columnTasks(top.tasks, 'todo'))).toEqual([3, 1, 2]);
+    const bottom = planMove(tasks, 1, 'todo', columnTasks(tasks, 'todo'), 2)!;
+    expect(bottom.target.after_id).toBe(3);
+    expect(ids(columnTasks(bottom.tasks, 'todo'))).toEqual([2, 3, 1]);
+  });
+
+  it('returns null when the card would land where it already is', () => {
+    const tasks = [task({ id: 1, position: 1024 }), task({ id: 2, position: 2048 })];
+    expect(planMove(tasks, 1, 'todo', columnTasks(tasks, 'todo'), 0)).toBeNull();
+    expect(planMove(tasks, 2, 'todo', columnTasks(tasks, 'todo'), 5)).toBeNull();
+  });
+
+  it('places relative to visible neighbours when the column is filtered', () => {
+    // Visible: 1 and 3 (2 is filtered out). Dropping 4 after 1 puts it directly after 1 in the full column.
+    const tasks = [task({ id: 1, position: 1000 }), task({ id: 2, position: 2000 }), task({ id: 3, position: 3000 }), task({ id: 4, status: 'backlog' })];
+    const visible = [tasks[0], tasks[2]];
+    const plan = planMove(tasks, 4, 'todo', visible, 1)!;
+    expect(plan.target).toEqual({ status: 'todo', after_id: 1, before_id: 3 });
+    expect(ids(columnTasks(plan.tasks, 'todo'))).toEqual([1, 4, 2, 3]);
+  });
+
+  it('merges the server result, including rebalanced positions', () => {
+    const tasks = [task({ id: 1, position: 1 }), task({ id: 2, position: 1.0000001 }), task({ id: 3, status: 'backlog' })];
+    const serverTask = task({ id: 3, status: 'todo', position: 2048 });
+    const merged = applyMoveResult(tasks, {
+      task: serverTask,
+      column: [
+        { id: 1, position: 1024 },
+        { id: 3, position: 2048 },
+        { id: 2, position: 3072 },
+      ],
+      rebalanced: true,
+    });
+    expect(ids(columnTasks(merged, 'todo'))).toEqual([1, 3, 2]);
+    expect(merged.find((t) => t.id === 3)).toBe(serverTask);
+  });
+
+  describe('keyboardMove', () => {
+    const a = task({ id: 1 });
+    const b = task({ id: 2 });
+    const c = task({ id: 3, status: 'in_progress' });
+    const byStatus: Record<TaskStatus, Task[]> = { backlog: [], todo: [a, b], in_progress: [c], review: [], done: [] };
+
+    it('reorders within the column', () => {
+      expect(keyboardMove('ArrowDown', a, byStatus)).toEqual({ status: 'todo', index: 1 });
+      expect(keyboardMove('ArrowUp', b, byStatus)).toEqual({ status: 'todo', index: 0 });
+      expect(keyboardMove('ArrowUp', a, byStatus)).toBeNull();
+      expect(keyboardMove('ArrowDown', b, byStatus)).toBeNull();
+    });
+
+    it('moves across columns at a clamped height', () => {
+      expect(keyboardMove('ArrowRight', b, byStatus)).toEqual({ status: 'in_progress', index: 1 });
+      expect(keyboardMove('ArrowLeft', a, byStatus)).toEqual({ status: 'backlog', index: 0 });
+      expect(keyboardMove('ArrowLeft', task({ status: 'backlog' }), { ...byStatus, backlog: [] })).toBeNull();
+      expect(keyboardMove('Enter', a, byStatus)).toBeNull();
+    });
+  });
+});
+
