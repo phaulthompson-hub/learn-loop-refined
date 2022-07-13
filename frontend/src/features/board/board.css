@@ -516,3 +516,178 @@
   color: var(--bad);
 }
 
+.task-due-today {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.task-due-soon {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.task-due-later,
+.task-due-done {
+  color: var(--muted);
+  padding-left: 0;
+}
+
+/* ---------- Quick add ---------- */
+
+.quick-add-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: auto;
+}
+
+.quick-add-toggle:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.quick-add-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+.quick-add {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: auto;
+}
+
+.quick-add .input {
+  font-size: 14px;
+  padding: 8px 10px;
+}
+
+.quick-add-spinner {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  color: var(--muted);
+}
+
+.quick-add small {
+  font-size: 12px;
+}
+
+/* ---------- List view ---------- */
+
+.board-list {
+  padding: 8px 14px 14px;
+}
+
+.list-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 200px;
+}
+
+.board-link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.board-link-button:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+.task-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 9px;
+  background: color-mix(in srgb, var(--status-color) 14%, var(--card));
+  color: color-mix(in srgb, var(--status-color) 80%, var(--ink));
+  white-space: nowrap;
+}
+
+.data-table tr.is-overdue td:first-child {
+  box-shadow: inset 3px 0 0 var(--bad);
+}
+
+/* ---------- New task modal ---------- */
+
+.label-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.label-fieldset legend {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.label-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.label-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid color-mix(in srgb, var(--label) 40%, var(--line));
+  background: var(--card);
+  color: var(--ink-soft);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.label-option svg {
+  width: 14px;
+  height: 14px;
+}
+
+.label-option.active {
+  background: color-mix(in srgb, var(--label) 16%, var(--card));
+  border-color: var(--label);
+  color: color-mix(in srgb, var(--label) 75%, var(--ink));
+}
+
+/* ---------- Task drawer ---------- */
+
+.drawer-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.drawer-heading .task-key {
+  font-size: 13px;
+}
+
+.task-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
