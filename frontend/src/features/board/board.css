@@ -342,3 +342,177 @@
   transition: box-shadow 0.15s, border-color 0.15s, opacity 0.15s;
 }
 
+.task-card:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow);
+}
+
+.task-card:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+.task-card.is-dragging {
+  opacity: 0.45;
+  cursor: grabbing;
+}
+
+.task-card.is-done .task-title {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--faint);
+}
+
+.course-stripe {
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+}
+
+.task-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.task-key {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.card-menu-button {
+  padding: 3px;
+  color: var(--muted);
+  opacity: 0;
+}
+
+.task-card:hover .card-menu-button,
+.task-card:focus-within .card-menu-button,
+.card-menu-button[aria-expanded='true'] {
+  opacity: 1;
+}
+
+.card-menu .menu {
+  cursor: default;
+}
+
+.task-title {
+  font: 600 14px/1.35 var(--sans);
+  letter-spacing: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.task-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--label) 15%, var(--card));
+  color: color-mix(in srgb, var(--label) 75%, var(--ink));
+  white-space: nowrap;
+}
+
+.task-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.task-meta,
+.task-checklist-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.task-meta svg,
+.task-checklist-meter svg,
+.task-due svg {
+  width: 13px;
+  height: 13px;
+}
+
+.task-checklist-meter.complete {
+  color: var(--ok);
+}
+
+.task-points {
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 20px;
+  text-align: center;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--ink-soft);
+}
+
+.avatar.unassigned {
+  border: 1.5px dashed var(--line-strong);
+  background: transparent;
+}
+
+.task-priority {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.task-priority svg {
+  width: 15px;
+  height: 15px;
+}
+
+.task-priority-urgent {
+  color: var(--bad);
+}
+
+.task-priority-high {
+  color: var(--warn);
+}
+
+.task-priority-medium {
+  color: var(--info);
+}
+
+.task-priority-low {
+  color: var(--faint);
+}
+
+.task-due {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.task-due-overdue {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
