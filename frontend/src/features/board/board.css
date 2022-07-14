@@ -863,3 +863,177 @@
   margin: 0 0 8px;
 }
 
+.task-markup ul,
+.task-markup ol {
+  padding-left: 22px;
+}
+
+.task-markup h4 {
+  font: 700 15px var(--display);
+  margin: 10px 0 6px;
+}
+
+.task-markup code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--hover);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+/* Checklist */
+
+.task-checklist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.task-checklist li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.task-checklist input[type='checkbox'] {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--brand);
+  flex: none;
+}
+
+.task-checklist-text {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  text-align: left;
+  padding: 4px 2px;
+  cursor: text;
+  overflow-wrap: anywhere;
+}
+
+.task-checklist li.is-done .task-checklist-text {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.task-checklist-edit {
+  flex: 1;
+  padding: 5px 8px;
+}
+
+.task-checklist-actions {
+  display: inline-flex;
+  opacity: 0.35;
+  transition: opacity 0.15s;
+}
+
+.task-checklist li:hover .task-checklist-actions,
+.task-checklist li:focus-within .task-checklist-actions {
+  opacity: 1;
+}
+
+.task-checklist-actions .icon-only {
+  padding: 4px;
+}
+
+.task-checklist-actions svg {
+  width: 15px;
+  height: 15px;
+}
+
+.task-checklist-add {
+  display: flex;
+  gap: 8px;
+}
+
+.task-checklist-add .input {
+  padding: 8px 10px;
+}
+
+/* Comments */
+
+.task-comments {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.task-comment {
+  display: flex;
+  gap: 10px;
+}
+
+.task-comment-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-comment-main header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  min-height: 28px;
+}
+
+.task-comment-main time {
+  color: var(--muted);
+}
+
+.task-comment-main header .icon-only {
+  padding: 4px;
+  color: var(--muted);
+}
+
+.task-comment-main header .icon-only svg {
+  width: 14px;
+  height: 14px;
+}
+
+.task-comment-body {
+  margin: 2px 0 0;
+  padding: 9px 12px;
+  background: var(--card-sunken);
+  border: 1px solid var(--line);
+  border-radius: 4px 12px 12px 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.task-comment-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-mention {
+  color: var(--brand-ink);
+  background: var(--brand-soft);
+  border-radius: 4px;
+  padding: 0 3px;
+  font-weight: 600;
+}
+
+.task-composer {
+  display: flex;
+  gap: 10px;
+  padding-top: 6px;
+}
+
+.task-composer-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
