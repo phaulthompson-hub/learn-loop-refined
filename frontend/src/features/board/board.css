@@ -1216,3 +1216,51 @@
   }
 }
 
+@media (max-width: 640px) {
+  .board-page {
+    --col-width: 82vw;
+  }
+
+  .board-scroll {
+    scroll-snap-type: x mandatory;
+  }
+
+  .board-cell {
+    scroll-snap-align: start;
+  }
+
+  .board-actions {
+    width: 100%;
+  }
+
+  .board-actions .primary {
+    margin-left: auto;
+  }
+
+  .select-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  .select-filters select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .task-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .board-hide-sm {
+    display: none;
+  }
+
+  .card-menu-button {
+    opacity: 1;
+  }
+
+  .task-checklist-actions {
+    opacity: 1;
+  }
+}
