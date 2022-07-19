@@ -124,3 +124,170 @@ function LaneHeader({ lane }: { lane: Swimlane }) {
   );
 }
 
+/** Kanban columns (optionally split into swimlanes) with native drag and drop plus keyboard moves. */
+export function BoardView({ columns, allTasks, visibleTasks, groupBy, members, now, onOpen, onMove, onQuickAdd, onAddInColumn }: BoardViewProps) {
+  const [dragId, setDragId] = useState<number | null>(null);
+  const [drop, setDrop] = useState<DropTarget | null>(null);
+  const [announcement, setAnnouncement] = useState('');
+  const focusAfterMove = useRef<number | null>(null);
+
+  const lanes = useMemo(() => buildSwimlanes(visibleTasks, groupBy, members), [visibleTasks, groupBy, members]);
+  const cells = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    lanes.forEach((lane) => STATUSES.forEach((status) => map.set(cellId(lane.key, status), columnTasks(lane.tasks, status))));
+    return map;
+  }, [lanes]);
+
+  useEffect(() => {
+    if (focusAfterMove.current === null) return;
+    document.querySelector<HTMLElement>(`[data-task-id="${focusAfterMove.current}"]`)?.focus();
+    focusAfterMove.current = null;
+  }, [visibleTasks]);
+
+  const laneOf = useCallback((task: Task) => (groupBy === 'none' ? 'all' : laneKey(task, groupBy)), [groupBy]);
+
+  const move = useCallback(
+    async (task: Task, status: TaskStatus, lane: string, finalIndex: number) => {
+      const visible = cells.get(cellId(lane, status)) ?? [];
+      const lanePatch = groupBy !== 'none' && laneOf(task) !== lane ? laneChange(lane) : undefined;
+      focusAfterMove.current = task.id;
+      const moved = await onMove({ taskId: task.id, status, visible, finalIndex, lanePatch });
+      if (moved) {
+        const others = visible.filter((t) => t.id !== task.id).length;
+        setAnnouncement(`Moved ${task.key} to ${STATUS_LABELS[status]}, position ${Math.min(finalIndex, others) + 1} of ${others + 1}.`);
+      }
+    },
+    [cells, groupBy, laneOf, onMove],
+  );
+
+  const onKeyboardMove = useCallback(
+    (task: Task, key: string) => {
+      const lane = laneOf(task);
+      const byStatus = Object.fromEntries(STATUSES.map((s) => [s, cells.get(cellId(lane, s)) ?? []])) as Record<TaskStatus, Task[]>;
+      const target = keyboardMove(key, task, byStatus);
+      if (target) void move(task, target.status, lane, target.index);
+      else setAnnouncement(`${task.key} cannot move further that way.`);
+    },
+    [cells, laneOf, move],
+  );
+
+  const onMenuMove = useCallback(
+    (task: Task, status: TaskStatus, place: 'top' | 'bottom') => {
+      const lane = laneOf(task);
+      void move(task, status, lane, place === 'top' ? 0 : (cells.get(cellId(lane, status))?.length ?? 0));
+    },
+    [cells, laneOf, move],
+  );
+
+  const onDragStart = useCallback((task: Task, event: React.DragEvent) => {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(task.id));
+    setDragId(task.id);
+  }, []);
+
+  const onDragEnd = useCallback(() => {
+    setDragId(null);
+    setDrop(null);
+  }, []);
+
+  const onDragOver = (event: React.DragEvent<HTMLElement>, cell: string) => {
+    if (dragId === null) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    const cards = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-task-id]')];
+    const hit = cards.findIndex((card) => {
+      const rect = card.getBoundingClientRect();
+      return event.clientY < rect.top + rect.height / 2;
+    });
+    const index = hit === -1 ? cards.length : hit;
+    if (drop?.cell !== cell || drop.index !== index) setDrop({ cell, index });
+  };
+
+  const onDrop = (event: React.DragEvent<HTMLElement>, lane: string, status: TaskStatus) => {
+    event.preventDefault();
+    const task = allTasks.find((t) => t.id === (dragId ?? Number(event.dataTransfer.getData('text/plain'))));
+    const target = drop;
+    onDragEnd();
+    if (!task || !target) return;
+    const visible = cells.get(cellId(lane, status)) ?? [];
+    void move(task, status, lane, dropToFinalIndex(visible.map((t) => t.id), task.id, target.index));
+  };
+
+  return (
+    <div className={cx('board-scroll', dragId !== null && 'is-dragging')}>
+      <p id="board-keyboard-help" className="sr-only">
+        Press Enter to open. Alt plus arrow keys move the card between columns and up or down within a column.
+      </p>
+      <div className="sr-only" role="status" aria-live="polite">
+        {announcement}
+      </div>
+      <div className="board-grid">
+        <div className="board-heads">
+          {columns.map((column) => {
+            const total = allTasks.filter((t) => t.status === column.status).length;
+            const stats = columnStats(visibleTasks.filter((t) => t.status === column.status));
+            return (
+              <div key={column.status} className={cx('column-head', `task-status-${column.status}`, wipState(total, column.wip_limit) === 'over' && 'is-over')}>
+                <span className="task-status-dot" aria-hidden />
+                <h2>{column.title}</h2>
+                <span className="column-count" title={stats.count === total ? undefined : `${stats.count} of ${total} shown`}>
+                  {stats.count}
+                </span>
+                <span className="column-points" title="Story points">
+                  {stats.points} pts
+                </span>
+                <span className="spacer" />
+                <WipPill total={total} limit={column.wip_limit} />
+                <button type="button" className="icon-only" aria-label={`Add task to ${column.title}`} onClick={() => onAddInColumn(column.status)}>
+                  <Plus />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {lanes.map((lane) => (
+          <section key={lane.key} className={cx('board-lane', groupBy !== 'none' && 'has-head')} aria-label={groupBy === 'none' ? undefined : lane.title}>
+            {groupBy !== 'none' && <LaneHeader lane={lane} />}
+            <div className="lane-cells">
+              {STATUSES.map((status) => {
+                const id = cellId(lane.key, status);
+                const tasks = cells.get(id) ?? [];
+                const indicator = drop?.cell === id ? drop.index : -1;
+                return (
+                  <div
+                    key={status}
+                    className={cx('board-cell', indicator !== -1 && 'is-target')}
+                    aria-label={groupBy === 'none' ? STATUS_LABELS[status] : `${lane.title}, ${STATUS_LABELS[status]}`}
+                    role="group"
+                    onDragOver={(event) => onDragOver(event, id)}
+                    onDragLeave={(event) => !event.currentTarget.contains(event.relatedTarget as Node | null) && setDrop(null)}
+                    onDrop={(event) => onDrop(event, lane.key, status)}
+                  >
+                    {tasks.map((task, index) => (
+                      <Fragment key={task.id}>
+                        {indicator === index && <div className="drop-indicator" aria-hidden />}
+                        <TaskCard
+                          task={task}
+                          now={now}
+                          dragging={dragId === task.id}
+                          onOpen={onOpen}
+                          onDragStart={onDragStart}
+                          onDragEnd={onDragEnd}
+                          onMenuMove={onMenuMove}
+                          onKeyboardMove={onKeyboardMove}
+                        />
+                      </Fragment>
+                    ))}
+                    {indicator === tasks.length && <div className="drop-indicator" aria-hidden />}
+                    {!tasks.length && indicator === -1 && <p className="cell-empty">{dragId !== null ? 'Drop here' : 'No tasks'}</p>}
+                    {groupBy === 'none' && <QuickAdd status={status} onAdd={onQuickAdd} />}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
