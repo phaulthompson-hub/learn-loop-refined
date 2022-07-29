@@ -348,3 +348,173 @@
   gap: 12px;
 }
 
+.note-title-input {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font: 800 28px/1.2 var(--display);
+  letter-spacing: -0.6px;
+  padding: 4px 0;
+  width: 100%;
+  outline: none;
+}
+
+.note-title-input:focus {
+  border-bottom-color: var(--brand-soft);
+}
+
+.note-title-input.invalid {
+  border-bottom-color: var(--bad);
+}
+
+.note-title-input::placeholder {
+  color: var(--faint);
+}
+
+.note-meta {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.note-meta .input {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.note-meta .note-tag-input-wrap {
+  grid-column: 1 / -1;
+}
+
+.note-tag-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 5px 8px;
+  background: var(--card);
+}
+
+.note-tag-input:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+.note-tag-input.invalid {
+  border-color: var(--bad);
+}
+
+.note-tag-input > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.note-tag-input input {
+  flex: 1;
+  min-width: 90px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  padding: 3px 0;
+}
+
+.note-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.note-tag-chip button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+  display: inline-grid;
+  border-radius: 4px;
+}
+
+.note-tag-chip button svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ---------- Markdown editor ---------- */
+
+.md-editor {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--card);
+  overflow: hidden;
+}
+
+.md-editor:focus-within {
+  border-color: var(--brand);
+}
+
+.md-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card-sunken);
+}
+
+.md-toolbar .icon-only {
+  padding: 6px;
+  color: var(--ink-soft);
+}
+
+.md-toolbar svg {
+  width: 16px;
+  height: 16px;
+}
+
+.md-toolbar-gap {
+  width: 1px;
+  height: 18px;
+  background: var(--line-strong);
+  margin: 0 5px;
+}
+
+.md-panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.mode-split .md-panes {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.md-write {
+  position: relative;
+  min-width: 0;
+}
+
+.md-write textarea {
+  display: block;
+  width: 100%;
+  min-height: 460px;
+  resize: vertical;
+  border: 0;
+  outline: none;
+  padding: 16px 18px;
+  background: transparent;
+  font: 14px/1.65 var(--mono);
+  tab-size: 2;
+}
+
+.md-preview {
+  padding: 16px 20px;
+  min-width: 0;
+  max-height: 720px;
+  overflow-y: auto;
+}
+
