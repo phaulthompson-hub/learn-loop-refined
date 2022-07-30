@@ -518,3 +518,178 @@
   overflow-y: auto;
 }
 
+.mode-split .md-preview {
+  border-left: 1px solid var(--line);
+  background: var(--card-sunken);
+}
+
+.mode-preview .md-preview {
+  max-height: none;
+  min-height: 300px;
+}
+
+.wikilink-menu {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: min(300px, calc(100% - 20px));
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  padding: 6px;
+  z-index: 5;
+}
+
+.wikilink-menu-title {
+  margin: 4px 8px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.wikilink-option {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.wikilink-option small {
+  color: var(--muted);
+}
+
+.wikilink-option.active {
+  background: var(--brand-soft);
+  color: var(--brand-ink);
+}
+
+.wikilink-menu-empty {
+  margin: 4px 8px 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.note-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.note-foot-keys {
+  margin-left: auto;
+}
+
+/* ---------- Sidebar ---------- */
+
+.note-side {
+  border-left: 1px solid var(--line);
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+}
+
+.note-side h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.note-side h3 svg {
+  width: 15px;
+  height: 15px;
+  color: var(--brand);
+}
+
+.note-side h3 .count {
+  font-size: 11px;
+  background: var(--hover);
+  border-radius: 999px;
+  padding: 0 7px;
+  color: var(--muted);
+}
+
+.note-side-empty {
+  font-size: 13px;
+  margin: 0;
+}
+
+.note-side-list,
+.note-outline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13.5px;
+}
+
+.note-side-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.note-side-list.compact {
+  gap: 6px;
+}
+
+.note-side-list a,
+.note-outline a {
+  color: var(--brand-ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.note-side-list a:hover,
+.note-outline a:hover {
+  text-decoration: underline;
+}
+
+.note-outline {
+  gap: 5px;
+}
+
+.note-outline a {
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.note-side-context {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.missing-link {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 6px !important;
+  color: var(--muted);
+}
+
+.missing-link svg {
+  width: 14px;
+  height: 14px;
+  color: var(--warn);
+}
+
+.missing-link span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
