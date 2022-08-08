@@ -1,0 +1,173 @@
+/* Notification bell popover and the /notifications inbox. */
+
+.notification-icon {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--hover);
+  color: var(--ink-soft);
+}
+
+.notification-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+:is(.notification-icon, .kind-chip, .badge).tone-ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+:is(.notification-icon, .kind-chip, .badge).tone-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+:is(.notification-icon, .kind-chip, .badge).tone-bad {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+:is(.notification-icon, .kind-chip, .badge).tone-info {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+:is(.notification-icon, .kind-chip, .badge).tone-violet {
+  background: var(--violet-soft);
+  color: var(--violet);
+}
+
+:is(.notification-icon, .kind-chip, .badge).tone-brand {
+  background: var(--brand-soft);
+  color: var(--brand-ink);
+}
+
+:is(.notification-icon, .kind-chip, .badge).tone-muted {
+  background: var(--hover);
+  color: var(--muted);
+}
+
+/* ---------- Bell ---------- */
+
+.bell-root {
+  position: relative;
+}
+
+.bell-button {
+  position: relative;
+}
+
+.bell-button.has-unread svg {
+  animation: bell-nudge 3.5s ease-in-out 1;
+  transform-origin: 50% 10%;
+}
+
+@keyframes bell-nudge {
+  0%,
+  88%,
+  100% {
+    transform: rotate(0);
+  }
+  91% {
+    transform: rotate(14deg);
+  }
+  95% {
+    transform: rotate(-12deg);
+  }
+}
+
+.bell-badge {
+  position: absolute;
+  top: 1px;
+  right: 0;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 800;
+  background: var(--bad);
+  color: #fff;
+  border: 2px solid var(--paper);
+}
+
+.bell-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: -8px;
+  z-index: 40;
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(560px, calc(100vh - 90px));
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.bell-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 10px 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bell-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.bell-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bell-item:hover,
+.bell-item:focus-visible {
+  background: var(--hover);
+}
+
+.bell-item.unread {
+  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
+}
+
+.bell-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.bell-item:not(.unread) .bell-text b {
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.bell-body {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
