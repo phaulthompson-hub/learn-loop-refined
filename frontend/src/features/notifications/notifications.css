@@ -171,3 +171,181 @@
   white-space: nowrap;
 }
 
+.bell-text small {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.unread-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+
+.bell-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 16px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.bell-state p {
+  margin: 0;
+}
+
+.bell-foot {
+  display: block;
+  padding: 11px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  border-top: 1px solid var(--line);
+}
+
+.bell-foot:hover {
+  background: var(--hover);
+}
+
+/* ---------- Inbox page ---------- */
+
+.notifications-page {
+  max-width: 900px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.notifications-page .page-header {
+  margin-bottom: 4px;
+}
+
+.inbox-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.kind-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kind-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.kind-chip .count {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+/* Chips stay neutral until selected; the selected one takes its kind's tone (declared above). */
+.kind-chip:not(.active) {
+  background: var(--card);
+  color: var(--ink-soft);
+}
+
+.kind-chip.active {
+  border-color: currentColor;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.kind-chip:not([class*='tone-']).active {
+  background: var(--forest-2);
+  color: #fff;
+  border-color: var(--forest-2);
+}
+
+.inbox-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.inbox-day {
+  display: flex;
+  flex-direction: column;
+}
+
+.inbox-day .feed-day-title {
+  position: static;
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+.inbox-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.inbox-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.inbox-item:last-child {
+  border-bottom: 0;
+}
+
+.inbox-item.unread::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand);
+}
+
+.inbox-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.inbox-text p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.inbox-title {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
