@@ -349,3 +349,63 @@
   cursor: pointer;
 }
 
+.unread .inbox-title {
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.inbox-title:hover {
+  color: var(--brand);
+  text-decoration: underline;
+}
+
+.inbox-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.inbox-actor,
+.inbox-workspace {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.inbox-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.inbox-item:hover .inbox-actions,
+.inbox-actions:focus-within {
+  opacity: 1;
+}
+
+.danger-icon:hover:not(:disabled) {
+  color: var(--bad);
+  background: var(--bad-soft);
+}
+
+@media (max-width: 560px) {
+  .inbox-item {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 12px 14px;
+  }
+
+  .inbox-actions {
+    grid-column: 2;
+    opacity: 1;
+  }
+
+  .bell-panel {
+    position: fixed;
+    top: 60px;
+    right: 12px;
+  }
+}
