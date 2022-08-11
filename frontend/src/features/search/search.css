@@ -1,0 +1,170 @@
+/* Command palette (Ctrl/Cmd+K) and the /search page. */
+
+mark {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+/* ---------- Palette ---------- */
+
+.palette-backdrop {
+  place-items: start center;
+  padding-top: min(12vh, 110px);
+}
+
+.palette {
+  width: min(640px, 100%);
+  max-height: min(620px, calc(100vh - 140px));
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  animation: pop-in 0.16s ease;
+}
+
+.palette-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.palette-input svg {
+  width: 20px;
+  height: 20px;
+}
+
+.palette-input input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 17px;
+  color: var(--ink);
+}
+
+.palette-list {
+  overflow-y: auto;
+  padding: 6px 8px 10px;
+  flex: 1;
+}
+
+.palette-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.palette-count {
+  font-size: 10px;
+  background: var(--hover);
+  border-radius: 999px;
+  padding: 0 6px;
+  letter-spacing: 0;
+}
+
+.palette-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.palette-option.active {
+  background: var(--brand-soft);
+}
+
+.palette-option.active .palette-icon {
+  background: var(--brand);
+  color: #fff;
+}
+
+.palette-icon {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--hover);
+  color: var(--ink-soft);
+}
+
+.palette-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.palette-icon.type-note {
+  color: var(--brand);
+}
+
+.palette-icon.type-course,
+.palette-icon.type-concept {
+  color: var(--info);
+}
+
+.palette-icon.type-task {
+  color: var(--violet);
+}
+
+.palette-icon.type-card {
+  color: var(--warn);
+}
+
+.palette-icon.type-event {
+  color: var(--bad);
+}
+
+.palette-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.palette-main b,
+.palette-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-main b {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.palette-main small {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.palette-hint {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
