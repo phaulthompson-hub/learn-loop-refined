@@ -122,3 +122,53 @@ export type CourseBreakdown = CourseBrief & {
   minutes: number;
 };
 
+export type ConceptRow = {
+  id: number;
+  name: string;
+  course: CourseBrief;
+  attempts: number;
+  correct: number;
+  accuracy: number;
+  mastery: number;
+  level: string;
+  unlocked: boolean;
+  last_practiced: string | null;
+};
+
+export type TimeSlice = { key: string; label: string; minutes: number; color: string | null };
+
+export type LeaderboardRow = PersonBriefRow & { rank: number; answers: number; correct: number; accuracy: number; is_me: boolean };
+type PersonBriefRow = { user_id: number; name: string; avatar_color: string };
+
+export type Analytics = {
+  range: { days: RangeDays; start: string; end: string; previous_start: string; previous_end: string; course_id: number | null };
+  courses_in_scope: CourseBrief[];
+  kpis: Record<KpiKey, Comparison>;
+  daily: DailyPoint[];
+  courses: CourseBreakdown[];
+  concepts: ConceptRow[];
+  weakest: ConceptRow[];
+  flashcards: {
+    reviews: number;
+    retention: number | null;
+    grades: { again: number; hard: number; good: number; easy: number };
+    due_now: number;
+    forecast: { date: string; count: number }[];
+  };
+  time: { total: number; by_course: TimeSlice[]; by_activity: TimeSlice[] };
+  leaderboard: LeaderboardRow[];
+  can_view_learners: boolean;
+};
+
+export type LearnerCell = { course_id: number; enrolled: boolean; mastery: number | null; mastered_concepts: number };
+
+export type LearnerRow = PersonBriefRow & {
+  role: string;
+  answers: number;
+  accuracy: number;
+  last_active: string | null;
+  average_mastery: number | null;
+  cells: LearnerCell[];
+};
+
+export type Learners = { days: RangeDays; courses: CourseBrief[]; learners: LearnerRow[] };
