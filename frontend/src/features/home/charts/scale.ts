@@ -123,3 +123,70 @@ export function totals(series: readonly (readonly number[])[]): number[] {
   return Array.from({ length }, (_, i) => series.reduce((sum, s) => sum + Math.max(0, s[i] ?? 0), 0));
 }
 
+/** Index of the point closest to `x`, given the points' x positions. */
+export function nearestIndex(x: number, positions: readonly number[]): number {
+  if (!positions.length) return -1;
+  let best = 0;
+  for (let i = 1; i < positions.length; i += 1) {
+    if (Math.abs(positions[i] - x) < Math.abs(positions[best] - x)) best = i;
+  }
+  return best;
+}
+
+/** Show every n-th label so that at most `maxLabels` fit; the last label is always kept. */
+export function labelStride(count: number, maxLabels: number): number {
+  if (count <= maxLabels || maxLabels <= 1) return 1;
+  return Math.ceil(count / maxLabels);
+}
+
+export function showLabel(index: number, count: number, stride: number): boolean {
+  if (index === count - 1) return true;
+  // Drop a stride label that would crowd the always-shown last label.
+  return index % stride === 0 && count - 1 - index >= stride / 2;
+}
+
+export type Arc = { start: number; end: number; fraction: number };
+
+/** Start/end angles (radians, clockwise from 12 o'clock) for each value's share of the total. */
+export function arcs(values: readonly number[]): Arc[] {
+  const total = values.reduce((sum, v) => sum + Math.max(0, v), 0);
+  let angle = 0;
+  return values.map((value) => {
+    const fraction = total > 0 ? Math.max(0, value) / total : 0;
+    const start = angle;
+    angle += fraction * Math.PI * 2;
+    return { start, end: angle, fraction };
+  });
+}
+
+export function polar(cx: number, cy: number, r: number, angle: number): Point {
+  return { x: cx + r * Math.sin(angle), y: cy - r * Math.cos(angle) };
+}
+
+/** A donut segment between `inner` and `outer` radius. Full circles are drawn as two halves. */
+export function donutSegment(cx: number, cy: number, outer: number, inner: number, start: number, end: number): string {
+  const sweep = end - start;
+  if (sweep <= 0) return '';
+  if (sweep >= Math.PI * 2 - 1e-6) {
+    const middle = start + Math.PI;
+    return donutSegment(cx, cy, outer, inner, start, middle) + donutSegment(cx, cy, outer, inner, middle, start + Math.PI * 2);
+  }
+  const large = sweep > Math.PI ? 1 : 0;
+  const a = polar(cx, cy, outer, start);
+  const b = polar(cx, cy, outer, end);
+  const c = polar(cx, cy, inner, end);
+  const d = polar(cx, cy, inner, start);
+  return `M${fmt(a.x)},${fmt(a.y)}A${outer},${outer} 0 ${large} 1 ${fmt(b.x)},${fmt(b.y)}L${fmt(c.x)},${fmt(c.y)}A${inner},${inner} 0 ${large} 0 ${fmt(d.x)},${fmt(d.y)}Z`;
+}
+
+/** Intensity bucket for heat cells: 0 for nothing, otherwise 1..levels relative to the largest value in view. */
+export function heatLevel(value: number, max: number, levels = 4): number {
+  if (value <= 0 || max <= 0) return 0;
+  return Math.min(levels, Math.max(1, Math.ceil((levels * value) / max)));
+}
+
+/** `stroke-dasharray`/`offset` pair that fills `percent` of a circle's circumference. */
+export function ringDash(percent: number, radius: number): { circumference: number; offset: number } {
+  const circumference = 2 * Math.PI * radius;
+  return { circumference, offset: circumference * (1 - clamp(percent, 0, 100) / 100) };
+}
