@@ -122,3 +122,96 @@ describe('paths', () => {
   });
 });
 
+describe('stacking', () => {
+  it('stacks series and ignores negative values', () => {
+    const result = stack([
+      [1, 2, 0],
+      [3, -1, 4],
+    ]);
+    expect(result[0]).toEqual([
+      { y0: 0, y1: 1 },
+      { y0: 0, y1: 2 },
+      { y0: 0, y1: 0 },
+    ]);
+    expect(result[1]).toEqual([
+      { y0: 1, y1: 4 },
+      { y0: 2, y1: 2 },
+      { y0: 0, y1: 4 },
+    ]);
+  });
+
+  it('pads shorter series with zeros', () => {
+    expect(totals([[1, 2, 3], [4]])).toEqual([5, 2, 3]);
+    expect(stack([[1], [1, 1]])[0][1]).toEqual({ y0: 0, y1: 0 });
+  });
+});
+
+describe('labels', () => {
+  it('thins labels to fit', () => {
+    expect(labelStride(7, 10)).toBe(1);
+    expect(labelStride(30, 6)).toBe(5);
+    expect(labelStride(90, 6)).toBe(15);
+  });
+
+  it('always shows the last label and hides stride labels that would collide with it', () => {
+    const shown = Array.from({ length: 30 }, (_, i) => i).filter((i) => showLabel(i, 30, 5));
+    expect(shown).toEqual([0, 5, 10, 15, 20, 25, 29]);
+    const crowded = Array.from({ length: 12 }, (_, i) => i).filter((i) => showLabel(i, 12, 5));
+    expect(crowded).toEqual([0, 5, 11]);
+  });
+});
+
+describe('arcs and rings', () => {
+  it('splits a full turn by share of the total', () => {
+    const result = arcs([1, 1, 2]);
+    expect(result.map((a) => a.fraction)).toEqual([0.25, 0.25, 0.5]);
+    expect(result[0].start).toBe(0);
+    expect(result[2].end).toBeCloseTo(Math.PI * 2);
+    expect(result[1].start).toBeCloseTo(Math.PI / 2);
+  });
+
+  it('gives empty data zero-width arcs', () => {
+    expect(arcs([0, 0]).every((a) => a.fraction === 0 && a.start === a.end)).toBe(true);
+  });
+
+  it('measures angles clockwise from 12 o\'clock', () => {
+    const top = polar(50, 50, 10, 0);
+    const right = polar(50, 50, 10, Math.PI / 2);
+    expect(top.x).toBeCloseTo(50);
+    expect(top.y).toBeCloseTo(40);
+    expect(right.x).toBeCloseTo(60);
+    expect(right.y).toBeCloseTo(50);
+  });
+
+  it('draws donut segments, splitting full circles', () => {
+    expect(donutSegment(50, 50, 40, 20, 0, 0)).toBe('');
+    const quarter = donutSegment(50, 50, 40, 20, 0, Math.PI / 2);
+    expect(quarter.startsWith('M50,10A40,40 0 0 1 90,50L70,50A20,20 0 0 0 50,30Z')).toBe(true);
+    const full = donutSegment(50, 50, 40, 20, 0, Math.PI * 2);
+    expect(full.match(/M/g)).toHaveLength(2);
+    expect(donutSegment(50, 50, 40, 20, 0, Math.PI * 1.5)).toContain('0 1 1');
+  });
+
+  it('computes ring dash offsets and clamps the percentage', () => {
+    const { circumference, offset } = ringDash(25, 10);
+    expect(circumference).toBeCloseTo(62.83, 2);
+    expect(offset).toBeCloseTo(circumference * 0.75);
+    expect(ringDash(150, 10).offset).toBe(0);
+    expect(ringDash(-5, 10).offset).toBeCloseTo(circumference);
+  });
+
+  it('buckets heat intensity relative to the maximum', () => {
+    expect(heatLevel(0, 10)).toBe(0);
+    expect(heatLevel(5, 0)).toBe(0);
+    expect(heatLevel(1, 10)).toBe(1);
+    expect(heatLevel(5, 10)).toBe(2);
+    expect(heatLevel(7.6, 10)).toBe(4);
+    expect(heatLevel(10, 10)).toBe(4);
+    expect(heatLevel(12, 10)).toBe(4);
+  });
+
+  it('clamps', () => {
+    expect(clamp(5, 0, 3)).toBe(3);
+    expect(clamp(-1, 0, 3)).toBe(0);
+  });
+});
