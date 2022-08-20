@@ -177,3 +177,130 @@
   min-width: 0;
 }
 
+.donut-legend li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  cursor: default;
+}
+
+.donut-legend li.active,
+.donut-legend li:hover {
+  background: var(--hover);
+}
+
+.donut-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.donut-legend small {
+  color: var(--muted);
+  text-align: right;
+}
+
+/* Sparkline, progress ring, heat strip */
+
+.sparkline {
+  display: block;
+  width: 96px;
+  height: 28px;
+  overflow: visible;
+}
+
+.sparkline .chart-line {
+  stroke-width: 1.8;
+}
+
+.progress-ring {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+
+.progress-ring svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.ring-track {
+  fill: none;
+  stroke: var(--hover);
+}
+
+.ring-value {
+  fill: none;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s ease;
+}
+
+.ring-content {
+  position: relative;
+  font: 800 13px var(--display);
+  color: var(--ink);
+}
+
+.heat-strip {
+  display: flex;
+  gap: 6px;
+}
+
+.heat-cell-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.heat-cell-wrap small {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.heat-cell {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  max-width: 28px;
+  border-radius: 6px;
+  background: var(--hover);
+}
+
+.heat-cell.strip-1 {
+  background: color-mix(in srgb, var(--brand) 25%, var(--hover));
+}
+
+.heat-cell.strip-2 {
+  background: color-mix(in srgb, var(--brand) 50%, var(--hover));
+}
+
+.heat-cell.strip-3 {
+  background: color-mix(in srgb, var(--brand) 75%, var(--hover));
+}
+
+.heat-cell.strip-4 {
+  background: var(--brand);
+}
+
+@media (max-width: 520px) {
+  .donut {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .donut svg {
+    max-width: 170px;
+  }
+
+  .donut-legend {
+    width: 100%;
+  }
+}
