@@ -1,0 +1,179 @@
+/* SVG chart kit. Series colours arrive as `color` (currentColor) so one rule styles every tone. */
+
+.chart {
+  position: relative;
+  margin: 0;
+  min-width: 0;
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  border-radius: var(--radius-sm);
+}
+
+.chart svg:focus-visible {
+  outline-offset: 4px;
+}
+
+.chart-grid line {
+  stroke: var(--line);
+  stroke-dasharray: 3 4;
+}
+
+.chart-grid text,
+.chart-axis-label {
+  fill: var(--muted);
+  font-size: 11px;
+  font-family: var(--sans);
+}
+
+.chart-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-area {
+  fill: currentColor;
+  opacity: 0.12;
+}
+
+.chart-dot,
+.chart-focus circle {
+  fill: var(--card);
+  stroke: currentColor;
+  stroke-width: 2.5;
+}
+
+.chart-focus line {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+
+.chart-bar {
+  fill: currentColor;
+  transition: opacity 0.15s;
+}
+
+.chart-bar.muted-bar {
+  opacity: 0.55;
+}
+
+.chart-hover-band {
+  fill: var(--hover);
+}
+
+.chart-tooltip {
+  position: absolute;
+  top: 0;
+  transform: translate(-50%, -8px);
+  pointer-events: none;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 140px;
+  z-index: 2;
+}
+
+.chart-tooltip.align-start {
+  transform: translate(-12%, -8px);
+}
+
+.chart-tooltip.align-end {
+  transform: translate(-88%, -8px);
+}
+
+.chart-tooltip span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+}
+
+.chart-tooltip .tooltip-total {
+  border-top: 1px solid var(--line);
+  padding-top: 3px;
+}
+
+.chart-tooltip .color-dot {
+  width: 8px;
+  height: 8px;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.chart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Donut */
+
+.donut {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.donut svg {
+  width: 100%;
+  height: auto;
+}
+
+.donut-track {
+  fill: none;
+  stroke: var(--hover);
+}
+
+.donut-slice {
+  transition: opacity 0.15s, d 0.15s;
+}
+
+.donut-slice.dimmed {
+  opacity: 0.3;
+}
+
+.donut-value {
+  font: 800 20px var(--display);
+  fill: var(--ink);
+}
+
+.donut-caption {
+  font-size: 11px;
+  fill: var(--muted);
+}
+
+.donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  min-width: 0;
+}
+
