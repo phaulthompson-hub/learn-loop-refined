@@ -1,0 +1,174 @@
+/* Home dashboard. Forest hero with a lime "loop" motif, then a two-column grid of focused panels. */
+
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+/* ---------- Hero ---------- */
+
+.home-hero {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 290px;
+  gap: 28px;
+  align-items: stretch;
+  padding: 30px 32px;
+  border-radius: 24px;
+  color: #eef6f0;
+  background:
+    radial-gradient(circle at 88% -30%, color-mix(in srgb, var(--accent) 38%, transparent), transparent 55%),
+    linear-gradient(135deg, var(--forest) 0%, var(--forest-2) 58%, var(--forest-3) 100%);
+  box-shadow: var(--shadow);
+}
+
+/* Two offset rings: the "loop" in LearnLoop. */
+.home-hero::before,
+.home-hero::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  pointer-events: none;
+}
+
+.home-hero::before {
+  width: 360px;
+  height: 360px;
+  right: -90px;
+  bottom: -210px;
+}
+
+.home-hero::after {
+  width: 220px;
+  height: 220px;
+  right: 120px;
+  bottom: -150px;
+  border-color: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.hero-date {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.home-hero h1 {
+  font-size: clamp(26px, 3.2vw, 38px);
+  color: #fff;
+}
+
+.hero-summary {
+  margin: 10px 0 22px;
+  color: #b9cdbf;
+  font-size: 15px;
+  max-width: 560px;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.hero-cta,
+.hero-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 12px;
+  padding: 11px 16px;
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+  transition: transform 0.15s, background 0.15s;
+}
+
+.hero-cta {
+  background: var(--accent);
+  color: #11251d;
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.hero-cta:hover {
+  transform: translateY(-1px);
+  background: #a3ec86;
+}
+
+.hero-link {
+  color: #e3efe7;
+  border: 1px solid #ffffff2e;
+}
+
+.hero-link:hover {
+  background: #ffffff14;
+}
+
+.hero-cards {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: #9fb5a7;
+}
+
+.hero-cards b {
+  color: #fff;
+}
+
+.hero-streak {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px;
+  border-radius: 18px;
+  background: #ffffff0d;
+  border: 1px solid #ffffff1f;
+  backdrop-filter: blur(4px);
+}
+
+.streak-flame {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: #ffffff12;
+  color: #8fa397;
+}
+
+.streak-flame svg {
+  width: 24px;
+  height: 24px;
+}
+
+.hero-streak.lit .streak-flame {
+  color: #ffb347;
+  background: #ffb34724;
+  box-shadow: 0 0 24px #ffb34740;
+}
+
+.hero-streak.lit .streak-flame svg {
+  animation: flicker 2.4s ease-in-out infinite;
+  transform-origin: 50% 90%;
+}
+
+@keyframes flicker {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+  40% {
+    transform: scale(1.06, 0.97) rotate(-2deg);
+  }
+  70% {
+    transform: scale(0.97, 1.04) rotate(2deg);
+  }
+}
+
