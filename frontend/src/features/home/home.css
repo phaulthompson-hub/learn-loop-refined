@@ -344,3 +344,173 @@
   margin-bottom: 14px;
 }
 
+.panel-count {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.panel-more {
+  display: block;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.section-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--card-sunken);
+  border: 1px dashed var(--line-strong);
+}
+
+.section-empty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.section-empty b {
+  color: var(--ink);
+}
+
+.skeleton-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.skeleton-hero {
+  min-height: 190px;
+}
+
+.skeleton-hero .skeleton {
+  background: linear-gradient(90deg, #ffffff14, #ffffff26, #ffffff14);
+  background-size: 200% 100%;
+  margin-bottom: 14px;
+}
+
+/* ---------- Focus ---------- */
+
+.focus-card {
+  --course: var(--brand);
+  position: relative;
+  padding: 22px 22px 22px 28px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, var(--accent-soft), var(--card) 65%);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.focus-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 6px;
+  background: var(--course);
+}
+
+.focus-card .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--brand-ink);
+}
+
+.focus-card .eyebrow svg {
+  width: 14px;
+  height: 14px;
+}
+
+.focus-card h2 {
+  font-size: 26px;
+  letter-spacing: -0.6px;
+}
+
+.focus-course {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 14px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.focus-mastery {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  max-width: 460px;
+}
+
+.focus-mastery span {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.focus-reason {
+  color: var(--ink-soft);
+  margin: 12px 0 16px;
+}
+
+.focus-card.calm p:last-child {
+  margin-bottom: 0;
+  color: var(--muted);
+}
+
+.focus-actions,
+.course-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---------- Continue learning ---------- */
+
+.course-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 14px;
+}
+
+.home-course-card {
+  --course: var(--brand);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: inset 0 3px 0 var(--course);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.home-course-card:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 3px 0 var(--course), var(--shadow);
+}
+
+.course-card-top {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.course-card-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
