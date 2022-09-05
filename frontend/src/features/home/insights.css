@@ -1,0 +1,172 @@
+/* Analytics and Activity pages. */
+
+.insights {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.insights .page-header {
+  margin-bottom: 4px;
+}
+
+.analytics-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.analytics-controls select {
+  width: auto;
+  min-width: 200px;
+}
+
+.analytics {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.range-caption {
+  margin: -6px 0 0;
+  font-size: 13px;
+}
+
+.chart-empty {
+  padding: 36px 0;
+  text-align: center;
+}
+
+.subhead {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 18px 0 8px;
+  font-family: var(--sans);
+  font-weight: 700;
+}
+
+/* ---------- KPI tiles ---------- */
+
+.kpi-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+  min-width: 0;
+}
+
+.kpi-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.kpi-value {
+  font: 800 26px var(--display);
+  letter-spacing: -0.6px;
+}
+
+.kpi-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.kpi-hint {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+/* ---------- Rows ---------- */
+
+.analytics-row {
+  display: grid;
+  gap: 18px;
+  align-items: start;
+}
+
+.analytics-row.wide-left {
+  grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+}
+
+.analytics-row.thirds {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.panel-head small {
+  font-size: 12px;
+}
+
+.table-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.table-tools .input {
+  width: auto;
+  min-width: 160px;
+}
+
+/* ---------- Study time split ---------- */
+
+.activity-split {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 14px 0 0;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.activity-split li {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.split-label {
+  color: var(--muted);
+}
+
+.split-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--hover);
+  overflow: hidden;
+}
+
+.split-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+/* ---------- Flashcards ---------- */
+
+.recall {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
