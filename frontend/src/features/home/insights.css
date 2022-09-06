@@ -343,3 +343,177 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 30%, transparent);
 }
 
+.rank {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 800 12px var(--display);
+  color: var(--muted);
+  background: var(--hover);
+}
+
+.rank-1 {
+  background: #f7d774;
+  color: #5c4500;
+}
+
+.rank-2 {
+  background: #dfe4e8;
+  color: #3d4750;
+}
+
+.rank-3 {
+  background: #efc39c;
+  color: #5d3313;
+}
+
+.leader-name {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.leader-name b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.leader-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--hover);
+  overflow: hidden;
+}
+
+.leader-bar i {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+}
+
+.leader-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 13px;
+}
+
+/* ---------- Concept table ---------- */
+
+.concept-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.concept-cell > span:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+}
+
+.concept-cell a {
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.concept-cell a:hover {
+  color: var(--brand);
+}
+
+.concept-cell small {
+  font-size: 12px;
+}
+
+.lock-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--faint);
+}
+
+.heat-mastery-cell {
+  display: grid;
+  grid-template-columns: minmax(60px, 1fr) 40px;
+  gap: 8px;
+  align-items: center;
+  text-align: right;
+}
+
+/* ---------- Learner heat table ---------- */
+
+.heat-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.heat-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.heat-legend i {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+
+.heat-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 4px;
+  font-size: 13px;
+}
+
+.heat-table th {
+  text-align: left;
+  font-weight: 600;
+  padding: 6px;
+}
+
+.heat-table thead th {
+  font-size: 12px;
+  color: var(--muted);
+  vertical-align: bottom;
+}
+
+.heat-table .course-col span:last-child {
+  display: block;
+  max-width: 120px;
+  line-height: 1.25;
+}
+
+.heat-table .course-col .color-dot {
+  margin-bottom: 4px;
+}
+
+.heat-table tfoot th {
+  color: var(--muted);
+}
+
+.heat-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.learner-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+}
+
+.learner-cell > span:last-child {
+  display: flex;
+  flex-direction: column;
+}
+
