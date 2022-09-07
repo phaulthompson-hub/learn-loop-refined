@@ -517,3 +517,155 @@
   flex-direction: column;
 }
 
+.learner-cell small {
+  font-size: 11px;
+  font-weight: 400;
+}
+
+td.heat {
+  text-align: center;
+  font-weight: 800;
+  border-radius: 8px;
+  padding: 10px 6px;
+  min-width: 64px;
+}
+
+.mh-none {
+  background: repeating-linear-gradient(135deg, var(--card-sunken) 0 6px, var(--hover) 6px 7px);
+  color: var(--faint);
+}
+
+.mh-needs-review {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+
+.mh-learning {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.mh-proficient {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.mh-mastered {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+/* ---------- Activity page ---------- */
+
+.filter-count {
+  margin-left: auto;
+  font-size: 13px;
+}
+
+.feed-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.feed-day-title {
+  position: sticky;
+  top: 62px;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 15px;
+  margin: 0 0 8px;
+  padding: 6px 0;
+  background: var(--paper);
+}
+
+.feed-day-title small {
+  font: 500 12px var(--sans);
+  color: var(--muted);
+}
+
+.feed-panel {
+  padding: 6px 20px;
+}
+
+.feed-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.feed-skeleton {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.feed-skeleton > div:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.avatar-skeleton {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 1180px) {
+  .analytics-row.thirds {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .analytics-row.thirds > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 980px) {
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .analytics-row.wide-left,
+  .analytics-row.thirds {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .analytics-controls,
+  .analytics-controls select,
+  .table-tools,
+  .table-tools > *,
+  .filter-bar select {
+    width: 100%;
+  }
+
+  .kpi {
+    padding: 12px;
+  }
+
+  .kpi-value {
+    font-size: 21px;
+  }
+
+  .kpi-foot .sparkline {
+    display: none;
+  }
+
+  .feed-panel {
+    padding: 4px 14px;
+  }
+
+  .filter-count {
+    margin-left: 0;
+  }
+}
