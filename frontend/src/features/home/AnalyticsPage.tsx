@@ -138,3 +138,115 @@ function Overview({ state, workspaceId, onCourse }: OverviewProps) {
   );
 }
 
+function MasteryTrend({ data }: { data: Analytics }) {
+  const first = data.daily[0]?.mastery ?? 0;
+  const last = data.daily[data.daily.length - 1]?.mastery ?? 0;
+  return (
+    <section className="panel" aria-labelledby="trend-title">
+      <header className="panel-head">
+        <h2 id="trend-title">
+          <LineIcon /> Mastery trend
+        </h2>
+        <small className="muted">Average across {data.concepts.length} concepts, rebuilt from your quiz history</small>
+      </header>
+      <LineChart
+        title="Average mastery per day"
+        description={`Average mastery moved from ${first.toFixed(1)}% to ${last.toFixed(1)}% over the last ${data.range.days} days.`}
+        labels={data.daily.map((d) => axisLabel(d.date, data.range.days))}
+        fullLabels={data.daily.map((d) => formatShortDate(d.date))}
+        series={[{ key: 'mastery', label: 'Average mastery', values: data.daily.map((d) => d.mastery), tone: 'brand', area: true }]}
+        yDomain={[0, 100]}
+        formatValue={(v) => `${Math.round(v)}%`}
+        height={240}
+      />
+    </section>
+  );
+}
+
+function DailyActivity({ data }: { data: Analytics }) {
+  const total = data.daily.reduce((sum, d) => sum + d.correct + d.incorrect + d.reviews, 0);
+  return (
+    <section className="panel" aria-labelledby="daily-title">
+      <header className="panel-head">
+        <h2 id="daily-title">
+          <BarChart3 /> Daily practice
+        </h2>
+        <small className="muted">Quiz answers and flashcard reviews</small>
+      </header>
+      {total === 0 ? (
+        <p className="muted chart-empty">No practice in this period yet.</p>
+      ) : (
+        <StackedBarChart
+          title="Practice per day"
+          description={`${total} quiz answers and flashcard reviews over the last ${data.range.days} days.`}
+          labels={data.daily.map((d) => axisLabel(d.date, data.range.days))}
+          fullLabels={data.daily.map((d) => formatShortDate(d.date))}
+          series={[
+            { key: 'correct', label: 'Correct answers', values: data.daily.map((d) => d.correct), tone: 'brand' },
+            { key: 'incorrect', label: 'Incorrect answers', values: data.daily.map((d) => d.incorrect), tone: 'bad' },
+            { key: 'reviews', label: 'Card reviews', values: data.daily.map((d) => d.reviews), tone: 'violet' },
+          ]}
+          height={230}
+        />
+      )}
+    </section>
+  );
+}
+
+const ACTIVITY_TONES = ['info', 'violet', 'warn', 'ok', 'muted'] as const;
+
+function TimeSplit({ data }: { data: Analytics }) {
+  const { time } = data;
+  return (
+    <section className="panel" aria-labelledby="time-title">
+      <header className="panel-head">
+        <h2 id="time-title">
+          <Clock /> Study time
+        </h2>
+      </header>
+      {time.total === 0 ? (
+        <p className="muted chart-empty">No study time logged in this period.</p>
+      ) : (
+        <>
+          <Donut
+            title="Study time by course"
+            slices={time.by_course.map((s) => ({ key: s.key, label: s.label, value: s.minutes, color: s.color ?? 'var(--faint)' }))}
+            center={formatDuration(time.total)}
+            centerCaption="total"
+            formatValue={formatDuration}
+          />
+          <ul className="activity-split" aria-label="Study time by activity">
+            {time.by_activity.map((slice, index) => (
+              <li key={slice.key}>
+                <span className="split-label">{slice.label}</span>
+                <span className="split-bar" aria-hidden="true">
+                  <i style={{ width: `${(slice.minutes / time.total) * 100}%`, background: `var(--${ACTIVITY_TONES[index % ACTIVITY_TONES.length]})` }} />
+                </span>
+                <b>{formatDuration(slice.minutes)}</b>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+}
+
+function OverviewSkeleton() {
+  return (
+    <div role="status" aria-label="Loading analytics">
+      <ul className="kpi-grid">
+        {Array.from({ length: 8 }, (_, index) => (
+          <li key={index} className="kpi">
+            <div className="skeleton" style={{ width: '60%' }} />
+            <div className="skeleton" style={{ width: '40%', height: 26 }} />
+          </li>
+        ))}
+      </ul>
+      <div className="analytics-row wide-left">
+        <div className="panel skeleton-panel" style={{ height: 300 }} />
+        <div className="panel skeleton-panel" style={{ height: 300 }} />
+      </div>
+    </div>
+  );
+}
