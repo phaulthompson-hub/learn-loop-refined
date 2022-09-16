@@ -133,3 +133,60 @@ describe('invitation display helpers', () => {
   });
 });
 
+describe('forms', () => {
+  it('reports only changed, trimmed fields', () => {
+    const saved = { name: 'Sam Okafor', headline: 'Backend engineer', quiz_length: 4 };
+    expect(changedFields(saved, { ...saved, name: '  Sam Okafor ' })).toEqual({});
+    expect(changedFields(saved, { ...saved, headline: ' Platform engineer ', quiz_length: 6 })).toEqual({ headline: 'Platform engineer', quiz_length: 6 });
+  });
+
+  it('validates the profile form like the API', () => {
+    const zones = ['UTC', 'Europe/Berlin'];
+    const valid = { name: 'Sam', headline: '', bio: '', timezone: 'UTC', avatar_color: '#1d6d45' };
+    expect(Object.values(validateProfile(valid, zones)).filter(Boolean)).toEqual([]);
+    const errors = validateProfile({ name: ' S ', headline: 'h'.repeat(121), bio: 'b'.repeat(601), timezone: 'Mars/Base', avatar_color: 'teal' }, zones);
+    expect(errors.name).toMatch(/at least 2/);
+    expect(errors.headline).toMatch(/at most 120 characters \(currently 121\)/);
+    expect(errors.bio).toMatch(/at most 600/);
+    expect(errors.timezone).toBeDefined();
+    expect(errors.avatar_color).toBeDefined();
+  });
+
+  it('validates the workspace form', () => {
+    expect(validateWorkspace({ name: 'Physics', description: '', color: '#2563eb' })).toEqual({ name: undefined, description: undefined, color: undefined });
+    expect(validateWorkspace({ name: 'P', description: 'd'.repeat(501), color: '#2563e' })).toEqual({
+      name: 'Workspace name must be at least 2 characters.',
+      description: 'Description must be at most 500 characters (currently 501).',
+      color: 'Use a hex colour like #1d6d45.',
+    });
+  });
+
+  it('validates a password change', () => {
+    expect(validatePasswordChange({ current: '', next: 'abc', confirm: 'abd' })).toEqual({
+      current: 'Enter your current password.',
+      next: 'Use at least 8 characters, a mix of letters and numbers or symbols.',
+      confirm: 'The passwords do not match.',
+    });
+    expect(validatePasswordChange({ current: 'learnloop123', next: 'learnloop123', confirm: 'learnloop123' }).next).toMatch(/different/);
+    expect(Object.values(validatePasswordChange({ current: 'learnloop123', next: 'fresh-pass-9', confirm: 'fresh-pass-9' })).filter(Boolean)).toEqual([]);
+  });
+
+  it('requires the exact workspace name to confirm deletion', () => {
+    expect(confirmationMatches('  Northwind Data Academy ', 'Northwind Data Academy')).toBe(true);
+    expect(confirmationMatches('northwind data academy', 'Northwind Data Academy')).toBe(false);
+  });
+
+  it('clamps slider values', () => {
+    expect(clamp(2, 5, 480)).toBe(5);
+    expect(clamp(500, 5, 480)).toBe(480);
+    expect(clamp(42.6, 5, 480)).toBe(43);
+  });
+
+  it('filters time zones by every typed word', () => {
+    const zones = ['UTC', 'America/New_York', 'America/Los_Angeles', 'Europe/London', 'Asia/Tokyo'];
+    expect(filterTimezones(zones, 'new york')).toEqual(['America/New_York']);
+    expect(filterTimezones(zones, 'america')).toEqual(['America/New_York', 'America/Los_Angeles']);
+    expect(filterTimezones(zones, '')).toEqual(zones);
+    expect(filterTimezones(zones, '', 2)).toEqual(['UTC', 'America/New_York']);
+  });
+});
