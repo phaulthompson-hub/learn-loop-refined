@@ -1,0 +1,175 @@
+/* Account settings, members, invitations and the public invite / new-workspace pages. */
+
+/* ---------- Role colours (one accent per role, reused by badges, tiles, bars and selects) ---------- */
+
+.role-learner {
+  --role: var(--info);
+  --role-soft: var(--info-soft);
+}
+
+.role-instructor {
+  --role: var(--violet);
+  --role-soft: var(--violet-soft);
+}
+
+.role-admin {
+  --role: var(--warn);
+  --role-soft: var(--warn-soft);
+}
+
+.role-owner {
+  --role: var(--brand);
+  --role-soft: var(--brand-soft);
+}
+
+.badge.role-badge {
+  background: var(--role-soft);
+  color: var(--role);
+}
+
+.admin-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.admin-page .page-header {
+  margin-bottom: 4px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.field-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 0;
+}
+
+/* ---------- Members ---------- */
+
+.role-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.role-tile {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  align-items: center;
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--card);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.role-tile svg {
+  grid-row: span 2;
+  width: 34px;
+  height: 34px;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--role-soft);
+  color: var(--role);
+}
+
+.role-tile b {
+  font: 800 22px var(--display);
+  line-height: 1.1;
+}
+
+.role-tile span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.role-tile:hover {
+  border-color: var(--role);
+}
+
+.role-tile.active {
+  border-color: var(--role);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--role) 18%, transparent);
+}
+
+.search-input.grow {
+  flex: 1 1 240px;
+}
+
+.member-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 220px;
+}
+
+.member-cell > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.member-cell b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.member-cell small {
+  color: var(--muted);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.member-cell .member-headline {
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.member-cell.inactive .avatar {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+.you-tag {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--brand-ink);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.data-table tr.is-you {
+  background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
+}
+
+.role-select {
+  width: auto;
+  min-width: 128px;
+  padding: 6px 10px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--role);
+  background: var(--role-soft);
+  border-color: color-mix(in srgb, var(--role) 30%, transparent);
+  cursor: pointer;
+}
+
