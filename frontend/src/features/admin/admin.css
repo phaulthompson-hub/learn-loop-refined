@@ -173,3 +173,177 @@
   cursor: pointer;
 }
 
+.answer-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.owner-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+
+.owner-hint svg {
+  color: var(--brand);
+}
+
+/* ---------- Invite modal ---------- */
+
+.chip-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  padding: 8px;
+  background: var(--card);
+  min-height: 84px;
+  cursor: text;
+}
+
+.chip-input:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent);
+}
+
+.field.invalid .chip-input {
+  border-color: var(--bad);
+}
+
+.chip-input textarea {
+  flex: 1 1 220px;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  padding: 4px;
+  min-height: 30px;
+}
+
+.field .chip-input textarea:focus {
+  box-shadow: none;
+}
+
+.email-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 3px 3px 3px 10px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand-ink);
+  overflow-wrap: anywhere;
+}
+
+.email-chip small {
+  font-weight: 500;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+.email-chip .icon-only {
+  padding: 2px;
+  border-radius: 50%;
+}
+
+.email-chip .icon-only svg {
+  width: 13px;
+  height: 13px;
+}
+
+.email-chip.invalid {
+  background: var(--bad-soft);
+  color: var(--bad);
+  text-decoration: underline wavy color-mix(in srgb, var(--bad) 50%, transparent);
+}
+
+.email-chip.duplicate {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.role-picker {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.role-picker legend {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+  padding: 0;
+}
+
+.role-picker.compact {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.role-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--card);
+}
+
+.role-option input {
+  margin: 3px 0 0;
+  accent-color: var(--brand);
+}
+
+.role-option > svg {
+  color: var(--muted);
+  margin-top: 1px;
+}
+
+.role-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.role-option small {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.role-option:hover {
+  border-color: var(--line-strong);
+}
+
+.role-option.selected {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+
+.role-option.selected > svg {
+  color: var(--brand);
+}
+
+.invite-count {
+  margin-right: auto;
+  font-size: 13px;
+}
+
+.invite-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
