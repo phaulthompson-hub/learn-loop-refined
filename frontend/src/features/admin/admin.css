@@ -347,3 +347,173 @@
   flex-direction: column;
 }
 
+.invite-results li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--line);
+}
+
+.invite-result-email {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.invite-results small {
+  color: var(--muted);
+  text-align: right;
+}
+
+.outcome-invited svg {
+  color: var(--ok);
+}
+
+.outcome-skipped svg {
+  color: var(--warn);
+}
+
+.outcome-invalid svg {
+  color: var(--bad);
+}
+
+/* ---------- Invitations panel ---------- */
+
+.invitations-panel .segmented {
+  flex-wrap: wrap;
+}
+
+.invitations-empty {
+  margin: 8px 0;
+}
+
+.invitation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.invitation {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.invitation:last-child {
+  border-bottom: 0;
+}
+
+.invitation-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.invitation-email {
+  overflow-wrap: anywhere;
+}
+
+.invitation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.invitation-main > small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.invitation-message {
+  font-size: 13px;
+  color: var(--ink-soft);
+  border-left: 3px solid var(--line-strong);
+  padding-left: 10px;
+  quotes: none;
+}
+
+.invitation-revoked .invitation-email,
+.invitation-accepted .invitation-email {
+  color: var(--muted);
+}
+
+.invitation-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.countdown svg {
+  width: 13px;
+  height: 13px;
+}
+
+.countdown.ok {
+  color: var(--muted);
+}
+
+.countdown.warn {
+  color: var(--warn);
+}
+
+.countdown.bad {
+  color: var(--bad);
+}
+
+/* ---------- Settings layout ---------- */
+
+.settings-section header {
+  margin-bottom: 18px;
+}
+
+.settings-section header p {
+  margin: 4px 0 0;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 18px;
+  align-items: start;
+}
+
+.settings-grid.even {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-grid.even > .danger-zone {
+  grid-column: 1 / -1;
+}
+
+.save-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
