@@ -1046,3 +1046,173 @@
   color: var(--muted);
 }
 
+.role-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.role-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--role);
+}
+
+.role-legend b {
+  color: var(--ink);
+}
+
+.workspace-about {
+  white-space: pre-line;
+}
+
+.confirm-name {
+  font-family: var(--mono);
+  background: var(--hover);
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+/* ---------- Public pages: invitation landing and new workspace ---------- */
+
+.invite-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  padding: 32px 16px 48px;
+  background: radial-gradient(ellipse at 50% -10%, var(--accent-soft), transparent 60%), var(--paper);
+}
+
+.invite-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 800 20px var(--display);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.invite-brand svg {
+  color: var(--brand);
+  width: 24px;
+  height: 24px;
+}
+
+.invite-brand b {
+  color: var(--brand);
+}
+
+.invite-card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.invite-card.new-workspace {
+  max-width: 560px;
+}
+
+.invite-hero {
+  text-align: center;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.invite-hero .workspace-mark {
+  margin: 0 auto 14px;
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--ws-color) 40%, transparent);
+}
+
+.invite-hero h1 {
+  font-size: 26px;
+  overflow-wrap: anywhere;
+}
+
+.invite-hero p.muted {
+  margin: 8px 0 0;
+}
+
+.invite-facts {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.invite-facts span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.invite-facts svg {
+  width: 14px;
+  height: 14px;
+}
+
+.invite-from {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.invite-from p {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.invite-message {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--card-sunken);
+  border-left: 3px solid var(--brand);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--ink-soft);
+  white-space: pre-line;
+}
+
+.invite-role {
+  margin: 0;
+  font-size: 13px;
+}
+
+.invite-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  text-align: center;
+}
+
+.invite-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font-size: 14px;
+}
+
+.invite-note.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
