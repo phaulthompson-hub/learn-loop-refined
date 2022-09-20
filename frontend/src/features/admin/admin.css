@@ -869,3 +869,180 @@
   color: var(--ink-soft);
 }
 
+.chip:hover {
+  border-color: var(--brand);
+}
+
+.chip.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stepper b {
+  font: 800 22px var(--display);
+  min-width: 2ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.stepper .secondary {
+  width: 36px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.week-start {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.week-start legend {
+  margin-bottom: 6px;
+}
+
+.segmented .segment {
+  padding: 7px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.segmented .segment.active {
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+
+.segmented .segment:focus-within {
+  outline: 2px solid var(--brand);
+}
+
+/* ---------- Security ---------- */
+
+.session-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+}
+
+.session-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.session-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--hover);
+  color: var(--ink-soft);
+  flex: none;
+}
+
+.session-list li.current .session-icon {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.session-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.session-main b {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.danger-zone {
+  border-color: color-mix(in srgb, var(--bad) 30%, var(--line));
+}
+
+.danger-zone h2 {
+  color: var(--bad);
+}
+
+.danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.danger-row:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.danger-row p {
+  margin: 2px 0 0;
+  font-size: 14px;
+}
+
+/* ---------- Workspace settings ---------- */
+
+.workspace-mark.big {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  font-size: 24px;
+}
+
+.workspace-mark.big svg {
+  width: 26px;
+  height: 26px;
+}
+
+.workspace-identity {
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+}
+
+.role-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  gap: 2px;
+  background: var(--hover);
+}
+
+.role-bar span {
+  background: var(--role);
+  min-width: 6px;
+}
+
+.role-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
