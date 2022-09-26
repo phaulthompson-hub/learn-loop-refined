@@ -162,3 +162,83 @@ function Sessions({ version }: { version: number }) {
   );
 }
 
+function DeactivateDialog({ onClose }: { onClose: () => void }) {
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  const [password, setPassword] = useState('');
+  const [understood, setUnderstood] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await accountApi.deactivate(password);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not deactivate the account');
+      setBusy(false);
+      return;
+    }
+    // Every session is gone server-side; clear the local one and leave the app.
+    await logout().catch(() => undefined);
+    navigate('/login', { replace: true });
+  };
+
+  return (
+    <Modal
+      title="Deactivate your account?"
+      description="You will be signed out everywhere and will not be able to sign in again. Your workspaces keep your contributions."
+      onClose={onClose}
+      size="sm"
+      footer={
+        <>
+          <button type="button" className="secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" form="deactivate-form" className="danger solid" disabled={!password || !understood || busy}>
+            <UserX /> {busy ? 'Deactivating…' : 'Deactivate account'}
+          </button>
+        </>
+      }
+    >
+      <form id="deactivate-form" className="stack" onSubmit={submit} noValidate>
+        {error && <ErrorBanner message={error} />}
+        <Field label="Confirm with your password">
+          <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-autofocus />
+        </Field>
+        <label className="checkbox">
+          <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />I understand this signs me out of every device.
+        </label>
+      </form>
+    </Modal>
+  );
+}
+
+export function SecuritySettings() {
+  const [sessionsVersion, setSessionsVersion] = useState(0);
+  const [deactivating, setDeactivating] = useState(false);
+  return (
+    <div className="settings-grid even">
+      <SettingsSection title="Password" description="Changing it signs out every other device.">
+        <ChangePassword onChanged={() => setSessionsVersion((v) => v + 1)} />
+      </SettingsSection>
+      <SettingsSection title="Where you are signed in" description="Sign out devices you no longer use or do not recognise.">
+        <Sessions version={sessionsVersion} />
+      </SettingsSection>
+      <SettingsSection title="Danger zone" tone="danger" description="Deactivating is blocked while you are the only owner of a workspace with other members.">
+        <div className="danger-row">
+          <div>
+            <b>Deactivate account</b>
+            <p className="muted">Stops you from signing in. Your quiz history, notes and comments stay in your workspaces.</p>
+          </div>
+          <button type="button" className="danger" onClick={() => setDeactivating(true)}>
+            <UserX /> Deactivate
+          </button>
+        </div>
+      </SettingsSection>
+      {deactivating && <DeactivateDialog onClose={() => setDeactivating(false)} />}
+    </div>
+  );
+}
