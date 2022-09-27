@@ -154,3 +154,103 @@ function DeleteDialog({ detail, onClose }: { detail: WorkspaceDetail; onClose: (
   );
 }
 
+export function WorkspaceSettings() {
+  const workspace = useWorkspace();
+  const { refresh } = useAuth();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [leaving, setLeaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { data, error, loading, reload } = useLoader(() => workspaceApi.get(workspace.id), `workspace:${workspace.id}`);
+
+  if (loading && !data) return <Loading label="Loading workspace…" />;
+  if (!data) return <ErrorBanner message={error ?? 'Workspace not found'} onRetry={reload} />;
+
+  const isAdmin = workspace.can('admin');
+  const isOwner = workspace.role === 'owner';
+  const leaveBlock = leaveProblem(workspace.role, data.stats.members_by_role.owner);
+
+  const leave = async () => {
+    setBusy(true);
+    try {
+      await workspaceApi.leave(workspace.id);
+      await refresh();
+      toast.success(`You left ${data.name}`);
+      navigate('/', { replace: true });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not leave the workspace');
+      setBusy(false);
+      setLeaving(false);
+    }
+  };
+
+  return (
+    <div className="stack">
+      <SettingsSection
+        title={data.name}
+        description={
+          <>
+            Created {formatDate(data.created_at)}
+            {data.owner && <> by {data.owner.name}</>} · you are <RoleBadge role={data.your_role} />
+          </>
+        }
+      >
+        <Stats detail={data} />
+      </SettingsSection>
+
+      {isAdmin ? (
+        <SettingsSection title="Details" description="Name, description and colour appear in the workspace switcher and on invitations.">
+          <DetailsForm
+            key={data.id}
+            detail={data}
+            onSaved={() => {
+              reload();
+              void refresh();
+            }}
+          />
+        </SettingsSection>
+      ) : (
+        <SettingsSection title="About this workspace">
+          <p className="workspace-about">{data.description || <span className="muted">No description yet.</span>}</p>
+          <p className="muted">Only admins and owners can change these details.</p>
+        </SettingsSection>
+      )}
+
+      <SettingsSection title="Danger zone" tone="danger">
+        <div className="danger-row">
+          <div>
+            <b>Leave workspace</b>
+            <p className="muted">{leaveBlock ?? 'You will lose access until someone invites you again.'}</p>
+          </div>
+          <button type="button" className="danger" disabled={!!leaveBlock} onClick={() => setLeaving(true)}>
+            <LogOut /> Leave
+          </button>
+        </div>
+        {isOwner && (
+          <div className="danger-row">
+            <div>
+              <b>Delete workspace</b>
+              <p className="muted">Permanently removes the workspace and everything in it for all members.</p>
+            </div>
+            <button type="button" className="danger solid" onClick={() => setDeleting(true)}>
+              <Trash2 /> Delete…
+            </button>
+          </div>
+        )}
+      </SettingsSection>
+
+      {leaving && (
+        <ConfirmDialog
+          title={`Leave ${data.name}?`}
+          message="You will lose access to its courses, notes and boards. Your history stays with the workspace."
+          confirmLabel="Leave workspace"
+          busy={busy}
+          onCancel={() => setLeaving(false)}
+          onConfirm={() => void leave()}
+        />
+      )}
+      {deleting && <DeleteDialog detail={data} onClose={() => setDeleting(false)} />}
+    </div>
+  );
+}
