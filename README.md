@@ -71,3 +71,87 @@ Set `FROZEN_NOW=` (empty) to use the real clock instead.
 | `/settings/*` | Profile, preferences (theme incl. dark mode, goals, quiz length, week start), security (password, sessions), workspace settings |
 | `/invite/:token`, `/workspaces/new` | Invitation landing page and workspace creation |
 
+## Architecture
+
+```text
+frontend/  React 18 + TypeScript 4.9 + Vite 4 SPA (React Router 6), no UI kit — own design system in src/styles
+  src/app/         auth, server clock, toasts
+  src/lib/         http client, UTC date + formatting helpers, table sorting/paging, validation
+  src/components/  Modal/Drawer, Menu, DataTable, Pagination, Tabs, Avatar, Field…
+  src/features/    one folder per feature: pages, api.ts, types.ts, pure helpers + tests, CSS
+backend/   FastAPI 0.88 + SQLAlchemy 1.4 (SQLite), Pydantic 1.10
+  app/models/      ORM models per area (identity, learning, flashcards, planner, board, notes, social)
+  app/routers/     one router per feature, workspace-scoped with role checks (app/deps.py)
+  app/services/    shared logic: mastery/learning, SM-2 scheduler, recurrence + iCalendar, streaks and
+                   goal pace, analytics aggregation, search ranking, ordering, membership rules…
+  app/seeding/     deterministic demo data, one module per feature
+  tests/           pytest: pure-logic unit tests + API tests against a seeded database
+```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for conventions (clock, permissions, list endpoints,
+fixtures). The only third-party integration is the optional LLM call in `backend/app/tutor.py`.
+
+## Local development (without Docker)
+
+Backend (Python 3.11+):
+
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements-dev.txt
+FROZEN_NOW=2022-03-14T09:00:00Z python -m app.seed
+FROZEN_NOW=2022-03-14T09:00:00Z uvicorn app.main:app --reload --port 8000
+```
+
+Frontend (Node 18+):
+
+```bash
+cd frontend
+npm ci
+npm run dev        # http://localhost:5173, talks to http://localhost:8000/api
+```
+
+## Tests, lint and type checks
+
+```bash
+cd backend
+python -m pytest                 # ~1,000 tests
+ruff . && black --check .
+
+cd frontend
+npm test                         # Vitest, ~600 tests
+npm run typecheck
+npm run lint
+npm run build
+```
+
+With Docker: `docker compose run --rm api python -m pytest`.
+
+Backend tests cover the pure logic (mastery, quiz generation, concept extraction, SM-2 scheduling,
+recurrence and iCalendar output, streaks and goal pace, analytics aggregation, search ranking and
+snippets, fractional ordering, wiki-link parsing, membership rules, password hashing) and every API
+area (validation, permissions per role, status codes, persistence, seed determinism). Frontend tests
+cover shared helpers (dates, formatting, tables, http errors), feature logic (calendar layout, board
+filtering and reordering, markdown rendering incl. XSS cases, chart scales, scheduler mirror, form
+validation) and key components with Testing Library.
+
+## Size
+
+`python scripts/loc.py` counts non-blank lines of git-tracked source (excluding lockfiles, build
+output and binary assets).
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `AI_MODE` | `demo` | `demo` = local tutor answers; `openai` = call an OpenAI-compatible API (falls back locally on errors) |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | empty / OpenAI / `gpt-4o-mini` | Only used when `AI_MODE=openai` |
+| `DATABASE_URL` | `sqlite:///./learnloop.db` | SQLAlchemy URL |
+| `FROZEN_NOW` | empty (compose: `2022-03-14T09:00:00Z`) | Pin "now" for reproducible screens |
+| `SEED_ON_START` | `false` (compose: `true`) | Seed demo data on startup when the database has no users |
+| `CORS_ORIGINS` | `http://localhost:5173` | Allowed browser origins |
+| `VITE_API_URL` | `http://localhost:8000/api` | Frontend build-time API URL |
+
+## License
+
+MIT — see [LICENSE](LICENSE).
