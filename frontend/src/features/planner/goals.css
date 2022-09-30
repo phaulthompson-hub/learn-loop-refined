@@ -60,19 +60,12 @@
 }
 
 .streak-hero.is-active .goals-streak-flame svg {
-  animation: flicker 2.4s ease-in-out infinite;
   fill: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .streak-hero.is-pending .goals-streak-flame {
   color: #c8d6cd;
   background: #ffffff14;
-}
-
-@keyframes flicker {
-  50% {
-    transform: scale(1.08) rotate(-3deg);
-  }
 }
 
 .streak-main .eyebrow {

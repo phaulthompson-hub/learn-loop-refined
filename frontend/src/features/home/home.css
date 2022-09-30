@@ -154,24 +154,6 @@
   box-shadow: 0 0 24px #ffb34740;
 }
 
-.hero-streak.lit .streak-flame svg {
-  animation: flicker 2.4s ease-in-out infinite;
-  transform-origin: 50% 90%;
-}
-
-@keyframes flicker {
-  0%,
-  100% {
-    transform: scale(1) rotate(0deg);
-  }
-  40% {
-    transform: scale(1.06, 0.97) rotate(-2deg);
-  }
-  70% {
-    transform: scale(0.97, 1.04) rotate(2deg);
-  }
-}
-
 .streak-count {
   margin: 4px 0 0;
   display: flex;
@@ -694,16 +676,6 @@
 .status-now .timeline-card {
   background: var(--accent-soft);
   border-color: color-mix(in srgb, var(--brand) 35%, var(--line));
-}
-
-.live-pill {
-  animation: pulse 1.8s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.55;
-  }
 }
 
 .timeline-now {

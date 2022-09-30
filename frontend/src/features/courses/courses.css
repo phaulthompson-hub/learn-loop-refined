@@ -693,16 +693,6 @@
   stroke: var(--accent);
   stroke-width: 3;
   opacity: 0.8;
-  animation: halo 2.4s ease-in-out infinite;
-  transform-origin: center;
-  transform-box: fill-box;
-}
-
-@keyframes halo {
-  50% {
-    opacity: 0.25;
-    transform: scale(1.08);
-  }
 }
 
 .concept-details {
